@@ -145,6 +145,27 @@ fun MapScreen(
         
         val styleStr = when(mapType) {
             "Liberty" -> "https://tiles.openfreemap.org/styles/liberty"
+            "Satellit" -> """
+                {
+                  "version": 8,
+                  "sources": {
+                    "satellite": {
+                      "type": "raster",
+                      "tiles": ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+                      "tileSize": 256
+                    }
+                  },
+                  "layers": [
+                    {
+                      "id": "satellite",
+                      "type": "raster",
+                      "source": "satellite",
+                      "minzoom": 0,
+                      "maxzoom": 22
+                    }
+                  ]
+                }
+            """.trimIndent()
             "Positron" -> "https://tiles.openfreemap.org/styles/positron"
             "Bright" -> "https://tiles.openfreemap.org/styles/bright"
             "Dark" -> "https://tiles.openfreemap.org/styles/dark"
