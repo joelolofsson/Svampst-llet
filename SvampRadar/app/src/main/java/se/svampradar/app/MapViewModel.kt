@@ -12,11 +12,18 @@ class MapViewModel : ViewModel() {
     private val _isGulKantarellActive = MutableStateFlow(false)
     val isGulKantarellActive: StateFlow<Boolean> = _isGulKantarellActive.asStateFlow()
 
+    private val _isMarkfuktighetActive = MutableStateFlow(false)
+    val isMarkfuktighetActive: StateFlow<Boolean> = _isMarkfuktighetActive.asStateFlow()
+
     fun toggleTrattkantarell() {
         _isTrattkantarellActive.value = !_isTrattkantarellActive.value
     }
 
     fun toggleGulKantarell() {
         _isGulKantarellActive.value = !_isGulKantarellActive.value
+    }
+
+    fun toggleMarkfuktighet() {
+        _isMarkfuktighetActive.value = !_isMarkfuktighetActive.value
     }
 }

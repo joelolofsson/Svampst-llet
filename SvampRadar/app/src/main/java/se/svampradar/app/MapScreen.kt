@@ -73,6 +73,7 @@ fun MapScreen(
 
     val isTrattkantarellActive by viewModel.isTrattkantarellActive.collectAsState()
     val isGulKantarellActive by viewModel.isGulKantarellActive.collectAsState()
+    val isMarkfuktighetActive by viewModel.isMarkfuktighetActive.collectAsState()
     val userMapType by prefManager.mapTypeFlow.collectAsState(initial = "Liberty")
 
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
@@ -240,6 +241,12 @@ fun MapScreen(
         )
     }
 
+    LaunchedEffect(isMarkfuktighetActive, mapLibreMap) {
+        mapLibreMap?.style?.getLayer("layer_markfuktighet")?.setProperties(
+            visibility(if (isMarkfuktighetActive) VISIBLE else NONE)
+        )
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -292,6 +299,16 @@ fun MapScreen(
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    FilterChip(
+                        selected = isMarkfuktighetActive,
+                        onClick = { viewModel.toggleMarkfuktighet() },
+                        label = { Text("💧 Markfuktighet") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                     )
                 }
@@ -395,5 +412,20 @@ private fun setupLayers(
             visibility(NONE),
             rasterOpacity(0.6f)
         ))
+    }
+
+    val sourceFukt = mbtilesServer.createRasterSource("source_markfuktighet", "markfuktighet")
+    if (style.getSource("source_markfuktighet") == null) {
+        style.addSource(sourceFukt)
+    }
+    if (style.getLayer("layer_markfuktighet") == null) {
+        // Place markfuktighet under the mushroom layers with 0.5f opacity
+        style.addLayerBelow(
+            RasterLayer("layer_markfuktighet", "source_markfuktighet").withProperties(
+                visibility(NONE),
+                rasterOpacity(0.55f)
+            ),
+            "layer_trattkantarell"
+        )
     }
 }
