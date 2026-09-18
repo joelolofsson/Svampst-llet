@@ -37,8 +37,11 @@ class SavedSpotRepository(context: Context) : SQLiteOpenHelper(context, "saved_s
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS spots")
-        onCreate(db)
+        // Säker migrationsstrategi: Raderar ALDRIG användarens sparade ställen.
+        // Framtida kolumner eller schemaändringar läggs till stegvis här, t.ex:
+        // if (oldVersion < 2) {
+        //     db.execSQL("ALTER TABLE spots ADD COLUMN rating INTEGER DEFAULT 0")
+        // }
     }
 
     fun loadSpots() {
