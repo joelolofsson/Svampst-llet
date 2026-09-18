@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -55,8 +56,8 @@ fun MainApp() {
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
-                    icon = { Icon(Icons.Filled.Place, contentDescription = "Karta") },
-                    label = { Text("Karta") },
+                    icon = { Icon(Icons.Filled.Place, contentDescription = stringResource(R.string.nav_map)) },
+                    label = { Text(stringResource(R.string.nav_map)) },
                     selected = currentRoute == "map",
                     onClick = {
                         navController.navigate("map") {
@@ -67,8 +68,8 @@ fun MainApp() {
                     }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Filled.Bookmarks, contentDescription = "Sparade ställen") },
-                    label = { Text("Sparade ställen") },
+                    icon = { Icon(Icons.Filled.Bookmarks, contentDescription = stringResource(R.string.nav_saved)) },
+                    label = { Text(stringResource(R.string.nav_saved)) },
                     selected = currentRoute == "saved",
                     onClick = {
                         navController.navigate("saved") {
@@ -79,8 +80,8 @@ fun MainApp() {
                     }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Filled.Settings, contentDescription = "Inställningar") },
-                    label = { Text("Inställningar") },
+                    icon = { Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.nav_settings)) },
+                    label = { Text(stringResource(R.string.nav_settings)) },
                     selected = currentRoute == "settings",
                     onClick = {
                         navController.navigate("settings") {

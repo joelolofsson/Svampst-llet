@@ -16,6 +16,9 @@ gradle-8.9/
 
 # Geodata large binary files
 *.mbtiles
+*.bin
+*.partial_tiles.db*
+*.mbtiles-journal
 geodata/*.tif*
 geodata/*.geojson
 geodata/*.json

@@ -18,13 +18,13 @@ class MapViewModelTest {
     @Test
     fun `toggleTrattkantarell flips state`() = runTest {
         val initial = viewModel.isTrattkantarellActive.value
-        assertEquals(false, initial)
-
-        viewModel.toggleTrattkantarell()
-        assertEquals(true, viewModel.isTrattkantarellActive.value)
+        assertEquals(true, initial)
 
         viewModel.toggleTrattkantarell()
         assertEquals(false, viewModel.isTrattkantarellActive.value)
+
+        viewModel.toggleTrattkantarell()
+        assertEquals(true, viewModel.isTrattkantarellActive.value)
     }
 
     @Test
@@ -37,5 +37,26 @@ class MapViewModelTest {
 
         viewModel.toggleGulKantarell()
         assertEquals(false, viewModel.isGulKantarellActive.value)
+    }
+
+    @Test
+    fun `toggleSkogstyp flips state`() = runTest {
+        assertEquals(false, viewModel.isSkogstypActive.value)
+        viewModel.toggleSkogstyp()
+        assertEquals(true, viewModel.isSkogstypActive.value)
+    }
+
+    @Test
+    fun `toggleMarkfuktighet flips state`() = runTest {
+        assertEquals(false, viewModel.isMarkfuktighetActive.value)
+        viewModel.toggleMarkfuktighet()
+        assertEquals(true, viewModel.isMarkfuktighetActive.value)
+    }
+
+    @Test
+    fun `toggleSavedSpots flips state`() = runTest {
+        assertEquals(true, viewModel.isSavedSpotsActive.value)
+        viewModel.toggleSavedSpots()
+        assertEquals(false, viewModel.isSavedSpotsActive.value)
     }
 }

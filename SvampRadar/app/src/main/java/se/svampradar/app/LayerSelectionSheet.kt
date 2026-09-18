@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -58,12 +59,12 @@ fun LayerSelectionSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Karttyp och lager",
+                    text = stringResource(R.string.layers_sheet_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "Stäng")
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.legend_close))
                 }
             }
 
@@ -71,7 +72,7 @@ fun LayerSelectionSheet(
 
             // 1. BASKARTA
             Text(
-                text = "Baskarta",
+                text = stringResource(R.string.layers_basemap_section),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -79,16 +80,16 @@ fun LayerSelectionSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             val mapOptions = listOf(
-                "Satellit" to "Högupplösta satellitbilder (ESRI)",
-                "Liberty" to "Topografisk terrängkarta",
-                "Positron" to "Ljus minimalistisk karta"
+                Triple("Satellit", stringResource(R.string.basemap_satellite), stringResource(R.string.basemap_satellite_desc)),
+                Triple("Liberty", stringResource(R.string.basemap_liberty), stringResource(R.string.basemap_liberty_desc)),
+                Triple("Positron", stringResource(R.string.basemap_positron), stringResource(R.string.basemap_positron_desc))
             )
 
-            mapOptions.forEach { (type, desc) ->
+            mapOptions.forEach { (typeKey, title, desc) ->
                 Surface(
-                    onClick = { onMapTypeSelected(type) },
+                    onClick = { onMapTypeSelected(typeKey) },
                     shape = RoundedCornerShape(12.dp),
-                    color = if (currentMapType == type) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                    color = if (currentMapType == typeKey) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
@@ -98,12 +99,12 @@ fun LayerSelectionSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
-                            selected = (currentMapType == type),
-                            onClick = { onMapTypeSelected(type) }
+                            selected = (currentMapType == typeKey),
+                            onClick = { onMapTypeSelected(typeKey) }
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text(text = type, fontWeight = FontWeight.Bold)
+                            Text(text = title, fontWeight = FontWeight.Bold)
                             Text(text = desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -114,7 +115,7 @@ fun LayerSelectionSheet(
 
             // 2. KARTLAGER
             Text(
-                text = "Kartlager",
+                text = stringResource(R.string.layers_overlay_section),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -123,21 +124,22 @@ fun LayerSelectionSheet(
 
             // TRATTKANTARELL
             LayerItem(
-                title = "Trattkantarell (Hotspots)",
-                description = "Äldre barr- och blandskog med optimal fuktighet",
+                title = stringResource(R.string.layer_trattkantarell),
+                description = stringResource(R.string.layer_trattkantarell_desc),
                 isChecked = isTrattkantarellActive,
                 onCheckedChange = { onToggleTrattkantarell() },
                 onInfoClick = { selectedLegendLayer = "trattkantarell" }
             )
 
             // GUL KANTARELL (TEASER)
+            val gulToast = stringResource(R.string.layer_gulkantarell_toast)
             LayerItem(
-                title = "Gul kantarell (Hotspots)",
-                description = "Kommer snart • Algoritm under utveckling",
+                title = stringResource(R.string.layer_gulkantarell),
+                description = stringResource(R.string.layer_gulkantarell_desc),
                 isChecked = false,
                 enabled = false,
                 onDisabledClick = {
-                    Toast.makeText(context, "Gul kantarell kommer i en framtida uppdatering!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, gulToast, Toast.LENGTH_SHORT).show()
                 },
                 onCheckedChange = { },
                 onInfoClick = { selectedLegendLayer = "gulkantarell" }
@@ -145,8 +147,8 @@ fun LayerSelectionSheet(
 
             // SKOGSTYP
             LayerItem(
-                title = "Skogstyp och kalhyggen",
-                description = "Gran, tall, löv samt blåmarkerade kalhyggen",
+                title = stringResource(R.string.layer_skogstyp),
+                description = stringResource(R.string.layer_skogstyp_desc),
                 isChecked = isSkogstypActive,
                 onCheckedChange = { onToggleSkogstyp() },
                 onInfoClick = { selectedLegendLayer = "skogstyp" }
@@ -154,8 +156,8 @@ fun LayerSelectionSheet(
 
             // MARKFUKTIGHET
             LayerItem(
-                title = "Markfuktighet (SLU DTW)",
-                description = "Fuktklasser från torr mark till sankmark",
+                title = stringResource(R.string.layer_markfuktighet),
+                description = stringResource(R.string.layer_markfuktighet_desc),
                 isChecked = isMarkfuktighetActive,
                 onCheckedChange = { onToggleMarkfuktighet() },
                 onInfoClick = { selectedLegendLayer = "markfuktighet" }
@@ -163,8 +165,8 @@ fun LayerSelectionSheet(
 
             // SPARADE STÄLLEN
             LayerItem(
-                title = "Sparade ställen",
-                description = "Visa dina personliga fyndmarkeringar",
+                title = stringResource(R.string.layer_saved_spots),
+                description = stringResource(R.string.layer_saved_spots_desc),
                 isChecked = isSavedSpotsActive,
                 onCheckedChange = { onToggleSavedSpots() },
                 onInfoClick = null
@@ -247,11 +249,11 @@ fun LegendDialog(
         title = {
             Text(
                 when (layerKey) {
-                    "skogstyp" -> "Färgförklaring: Skogstyp"
-                    "markfuktighet" -> "Färgförklaring: Markfuktighet"
-                    "trattkantarell" -> "Färgförklaring: Trattkantarell"
-                    "gulkantarell" -> "Färgförklaring: Gul kantarell"
-                    else -> "Förklaring"
+                    "skogstyp" -> stringResource(R.string.legend_title_skogstyp)
+                    "markfuktighet" -> stringResource(R.string.legend_title_markfuktighet)
+                    "trattkantarell" -> stringResource(R.string.legend_title_trattkantarell)
+                    "gulkantarell" -> stringResource(R.string.legend_title_gulkantarell)
+                    else -> stringResource(R.string.btn_close)
                 }
             )
         },
@@ -281,7 +283,7 @@ fun LegendDialog(
         },
         confirmButton = {
             Button(onClick = onDismiss) {
-                Text("Stäng")
+                Text(stringResource(R.string.legend_close))
             }
         }
     )

@@ -18,6 +18,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
+import androidx.compose.ui.res.stringResource
+
 @Composable
 fun SettingsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -27,14 +29,14 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
 
     Column(modifier = modifier.fillMaxSize()) {
         Text(
-            text = "Inställningar",
+            text = stringResource(R.string.settings_title),
             style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier.padding(16.dp)
         )
 
         ListItem(
-            headlineContent = { Text("Standard Svamp-toggle") },
-            supportingContent = { Text("Visa Trattkantarell som standard när appen startas") },
+            headlineContent = { Text(stringResource(R.string.settings_default_toggle)) },
+            supportingContent = { Text(stringResource(R.string.settings_default_toggle_desc)) },
             trailingContent = {
                 Switch(
                     checked = defaultMushroom,
@@ -48,9 +50,18 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         HorizontalDivider()
 
         ListItem(
-            headlineContent = { Text("Om Svampstället") },
+            headlineContent = { Text(stringResource(R.string.settings_coverage_title)) },
             supportingContent = { 
-                Text("Svampstället v1.0\nDatakällor: Lantmäteriet, SLU Skogsdatalabbet, OpenFreeMap, ESRI\nSvampdata: Lokala MBTiles & binärt inspektionsraster") 
+                Text(stringResource(R.string.settings_coverage_desc)) 
+            }
+        )
+
+        HorizontalDivider()
+
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.settings_about_title)) },
+            supportingContent = { 
+                Text(stringResource(R.string.settings_about_desc)) 
             }
         )
     }

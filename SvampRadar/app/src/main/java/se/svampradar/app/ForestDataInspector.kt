@@ -3,6 +3,7 @@ package se.svampradar.app
 import android.content.Context
 import android.util.Log
 import java.io.File
+import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -20,49 +21,97 @@ data class ForestInspection(
     val dominantSpecies: String
 )
 
-class ForestDataInspector(private val context: Context) {
-    private val binFile = File(context.filesDir, "forest_inspection.bin")
+private class GridFile(
+    val raf: RandomAccessFile,
+    val xMin: Double,
+    val yMax: Double,
+    val cols: Int,
+    val rows: Int,
+    val cellX: Double,
+    val cellY: Double
+) {
+    val xMax: Double = xMin + cols * cellX
+    val yMin: Double = yMax - rows * cellY
 
-    private var xMin: Double = 0.0
-    private var yMax: Double = 0.0
-    private var cols: Int = 0
-    private var rows: Int = 0
-    private var cellX: Double = 0.0
-    private var cellY: Double = 0.0
-    private var isLoaded = false
-    private var raf: RandomAccessFile? = null
+    fun contains(xMerc: Double, yMerc: Double): Boolean {
+        return xMerc in xMin..xMax && yMerc in yMin..yMax
+    }
+
+    fun readCell(r: Int, c: Int): ByteArray? {
+        if (r !in 0 until rows || c !in 0 until cols) return null
+        val off = 48L + (r.toLong() * cols + c) * 6L
+        raf.seek(off)
+        val d = ByteArray(6)
+        raf.readFully(d)
+        return d
+    }
+}
+
+class ForestDataInspector(private val context: Context) {
+    private val grids = mutableListOf<GridFile>()
 
     init {
+        extractAndLoadGrids()
+    }
+
+    private fun extractAndLoadGrids() {
         try {
-            if (binFile.exists()) {
-                raf = RandomAccessFile(binFile, "r")
-                val headerBytes = ByteArray(48)
-                raf?.readFully(headerBytes)
-                val buffer = ByteBuffer.wrap(headerBytes).order(ByteOrder.BIG_ENDIAN)
-
-                val magic = ByteArray(4)
-                buffer.get(magic)
-                val magicStr = String(magic)
-                val version = buffer.int
-
-                if (magicStr == "SVMP" && version == 1) {
-                    xMin = buffer.double
-                    yMax = buffer.double
-                    cols = buffer.int
-                    rows = buffer.int
-                    cellX = buffer.double
-                    cellY = buffer.double
-                    isLoaded = true
-                    Log.i("ForestDataInspector", "Loaded inspection grid: ${cols}x${rows}, cell: ${cellX}x${cellY}")
+            val assetList = context.assets.list("") ?: return
+            for (name in assetList) {
+                if (name.startsWith("forest_inspection") && name.endsWith(".bin")) {
+                    val f = File(context.filesDir, name)
+                    if (!f.exists() || f.length() == 0L) {
+                        try {
+                            context.assets.open(name).use { input ->
+                                FileOutputStream(f).use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            Log.i("ForestDataInspector", "Extracted $name from assets (${f.length()} bytes)")
+                        } catch (e: Exception) {
+                            Log.e("ForestDataInspector", "Failed to extract asset $name", e)
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
-            Log.e("ForestDataInspector", "Failed to initialize inspector", e)
+            Log.e("ForestDataInspector", "Failed to list assets", e)
+        }
+
+        context.filesDir.listFiles()?.forEach { file ->
+            if (file.name.startsWith("forest_inspection") && file.name.endsWith(".bin") && file.length() > 48) {
+                try {
+                    val raf = RandomAccessFile(file, "r")
+                    val headerBytes = ByteArray(48)
+                    raf.readFully(headerBytes)
+                    val buffer = ByteBuffer.wrap(headerBytes).order(ByteOrder.BIG_ENDIAN)
+
+                    val magic = ByteArray(4)
+                    buffer.get(magic)
+                    val magicStr = String(magic)
+                    val version = buffer.int
+
+                    if (magicStr == "SVMP" && version == 1) {
+                        val xMin = buffer.double
+                        val yMax = buffer.double
+                        val cols = buffer.int
+                        val rows = buffer.int
+                        val cellX = buffer.double
+                        val cellY = buffer.double
+                        grids.add(GridFile(raf, xMin, yMax, cols, rows, cellX, cellY))
+                        Log.i("ForestDataInspector", "Loaded inspection grid ${file.name}: ${cols}x${rows}, cell: ${cellX}x${cellY}")
+                    } else {
+                        raf.close()
+                    }
+                } catch (e: Exception) {
+                    Log.e("ForestDataInspector", "Failed to load grid from ${file.name}", e)
+                }
+            }
         }
     }
 
     fun inspect(lat: Double, lon: Double): ForestInspection? {
-        if (!isLoaded || raf == null) return null
+        if (grids.isEmpty()) return null
 
         try {
             // Konvertera WGS84 (lat, lon) till Web Mercator (EPSG:3857)
@@ -70,24 +119,17 @@ class ForestDataInspector(private val context: Context) {
             var yMerc = ln(tan((90.0 + lat) * Math.PI / 360.0)) / (Math.PI / 180.0)
             yMerc = yMerc * 20037508.34 / 180.0
 
-            val col = ((xMerc - xMin) / cellX).toInt()
-            val row = ((yMax - yMerc) / cellY).toInt()
+            val grid = grids.firstOrNull { it.contains(xMerc, yMerc) } ?: return null
 
-            if (col < 0 || col >= cols || row < 0 || row >= rows) {
+            val col = ((xMerc - grid.xMin) / grid.cellX).toInt()
+            val row = ((grid.yMax - yMerc) / grid.cellY).toInt()
+
+            if (col < 0 || col >= grid.cols || row < 0 || row >= grid.rows) {
                 return null
             }
 
             synchronized(this) {
-                fun readCell(r: Int, c: Int): ByteArray? {
-                    if (r !in 0 until rows || c !in 0 until cols) return null
-                    val off = 48L + (r.toLong() * cols + c) * 6L
-                    raf?.seek(off)
-                    val d = ByteArray(6)
-                    raf?.readFully(d)
-                    return d
-                }
-
-                var data = readCell(row, col) ?: return null
+                var data = grid.readCell(row, col) ?: return null
                 var gran = data[0].toInt() and 0xFF
                 var tall = data[1].toInt() and 0xFF
                 var lov = data[2].toInt() and 0xFF
@@ -102,7 +144,7 @@ class ForestDataInspector(private val context: Context) {
                     var bestData = data
                     for (dr in -1..1) {
                         for (dc in -1..1) {
-                            val neighbor = readCell(row + dr, col + dc) ?: continue
+                            val neighbor = grid.readCell(row + dr, col + dc) ?: continue
                             val nTotal = (neighbor[0].toInt() and 0xFF) + (neighbor[1].toInt() and 0xFF) + (neighbor[2].toInt() and 0xFF)
                             val nScore = neighbor[5].toInt() and 0xFF
                             val metric = nScore * 1000 + nTotal
@@ -181,8 +223,9 @@ class ForestDataInspector(private val context: Context) {
     }
 
     fun close() {
-        try {
-            raf?.close()
-        } catch (e: Exception) {}
+        grids.forEach {
+            try { it.raf.close() } catch (e: Exception) {}
+        }
+        grids.clear()
     }
 }

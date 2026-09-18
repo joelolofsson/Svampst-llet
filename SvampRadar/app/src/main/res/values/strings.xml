@@ -1,4 +1,85 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Svampstället</string>
+
+    <!-- Navigation tabs -->
+    <string name="nav_map">Karta</string>
+    <string name="nav_saved">Sparade ställen</string>
+    <string name="nav_settings">Inställningar</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Inställningar</string>
+    <string name="settings_default_toggle">Standard Svamp-toggle</string>
+    <string name="settings_default_toggle_desc">Visa Trattkantarell som standard när appen startas</string>
+    <string name="settings_coverage_title">Täckningsområde</string>
+    <string name="settings_coverage_desc">Skogs- och hotspotdata stöds för närvarande i:\n• Ale kommun\n• Lilla Edet kommun\n• Göteborg\n• Lidköping\n• Marks kommun</string>
+    <string name="settings_about_title">Om Svampstället</string>
+    <string name="settings_about_desc">Svampstället v1.0\nDatakällor: Lantmäteriet, SLU Skogsdatalabbet, OpenFreeMap, ESRI\nSvampdata: Lokala MBTiles &amp; binärt inspektionsraster</string>
+
+    <!-- Layer Selection Sheet -->
+    <string name="layers_sheet_title">Karttyp och lager</string>
+    <string name="layers_basemap_section">Baskarta</string>
+    <string name="layers_overlay_section">Kartlager</string>
+    <string name="basemap_satellite">Satellit</string>
+    <string name="basemap_satellite_desc">Högupplösta satellitbilder (ESRI)</string>
+    <string name="basemap_liberty">Liberty</string>
+    <string name="basemap_liberty_desc">Topografisk terrängkarta</string>
+    <string name="basemap_positron">Positron</string>
+    <string name="basemap_positron_desc">Ljus minimalistisk karta</string>
+    <string name="layer_trattkantarell">Trattkantarell (Hotspots)</string>
+    <string name="layer_trattkantarell_desc">Äldre barr- och blandskog med optimal fuktighet</string>
+    <string name="layer_gulkantarell">Gul kantarell (Hotspots)</string>
+    <string name="layer_gulkantarell_desc">Kommer snart • Algoritm under utveckling</string>
+    <string name="layer_gulkantarell_toast">Gul kantarell kommer i en framtida uppdatering!</string>
+    <string name="layer_skogstyp">Skogstyp och kalhyggen</string>
+    <string name="layer_skogstyp_desc">Gran, tall, löv samt blåmarkerade kalhyggen</string>
+    <string name="layer_markfuktighet">Markfuktighet (SLU DTW)</string>
+    <string name="layer_markfuktighet_desc">Fuktklasser från torr mark till sankmark</string>
+    <string name="layer_saved_spots">Sparade ställen</string>
+    <string name="layer_saved_spots_desc">Visa dina personliga fyndmarkeringar</string>
+
+    <!-- Detail Sheet -->
+    <string name="detail_forest_analysis">Skogsanalys</string>
+    <string name="detail_calculated_prob">Beräknad sannolikhet</string>
+    <string name="detail_hotspot_label">Hotspot för Trattkantarell</string>
+    <string name="detail_forest_type">Skogstyp</string>
+    <string name="detail_forest_age">Beståndsålder</string>
+    <string name="detail_moisture">Markfuktighet</string>
+    <string name="detail_assessment">Motivering</string>
+    <string name="detail_no_data">Ingen skogsdata tillgänglig för denna koordinat.</string>
+    <string name="btn_navigate">Navigera</string>
+    <string name="btn_share">Dela</string>
+    <string name="btn_save_spot">Spara plats</string>
+    <string name="share_subject">Svampstället Plats</string>
+    <string name="share_text_prefix">Kolla in den här platsen i skogen:</string>
+    <string name="share_chooser_title">Dela plats via</string>
+    <string name="toast_spot_saved">Platsen har sparats</string>
+
+    <!-- Save Spot Dialog -->
+    <string name="dialog_save_title">Spara svampställe</string>
+    <string name="dialog_field_name">Namn på stället (t.ex. Bästa kantarellstället)</string>
+    <string name="dialog_field_mushroom">Svampart</string>
+    <string name="dialog_field_amount">Mängd / Uppskattning (t.ex. 2 liter, Rikligt)</string>
+    <string name="dialog_field_note">Anteckning (valfritt)</string>
+    <string name="btn_cancel">Avbryt</string>
+    <string name="btn_save">Spara</string>
+
+    <!-- Saved Spots Screen -->
+    <string name="saved_screen_title">Sparade ställen</string>
+    <string name="saved_search_placeholder">Sök bland sparade ställen...</string>
+    <string name="saved_empty_title">Inga sparade ställen ännu</string>
+    <string name="saved_empty_desc">Klicka på en plats på kartan för att analysera och spara den här.</string>
+    <string name="saved_no_match_title">Inga ställen matchar din sökning</string>
+    <string name="saved_no_match_desc">Prova att söka på en annan svampart eller plats.</string>
+    <string name="btn_show_on_map">Visa på karta</string>
+    <string name="filter_active_banner">Visar endast:</string>
+    <string name="btn_show_all">Visa alla</string>
+    <string name="btn_close">Stäng</string>
+
+    <!-- Legends -->
+    <string name="legend_title_skogstyp">Färgförklaring: Skogstyp</string>
+    <string name="legend_title_markfuktighet">Färgförklaring: Markfuktighet</string>
+    <string name="legend_title_trattkantarell">Färgförklaring: Trattkantarell</string>
+    <string name="legend_title_gulkantarell">Färgförklaring: Gul kantarell</string>
+    <string name="legend_close">Stäng</string>
 </resources>

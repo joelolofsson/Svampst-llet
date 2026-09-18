@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -35,12 +36,12 @@ fun SavedSpotsScreen(
             .padding(16.dp)
     ) {
         Text(
-            text = "Sparade ställen",
+            text = stringResource(R.string.saved_screen_title),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "${spots.size} platser sparade",
+            text = "${spots.size} spots",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -62,13 +63,13 @@ fun SavedSpotsScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Inga sparade ställen än",
+                        text = stringResource(R.string.saved_empty_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Klicka på ett område i kartan och välj 'Spara plats' för att spara fynd.",
+                        text = stringResource(R.string.saved_empty_desc),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -148,7 +149,7 @@ fun SavedSpotsScreen(
                                 ) {
                                     Icon(Icons.Filled.Map, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Visa på karta")
+                                    Text(stringResource(R.string.btn_show_on_map))
                                 }
 
                                 OutlinedButton(
@@ -171,7 +172,7 @@ fun SavedSpotsScreen(
                                 ) {
                                     Icon(Icons.Filled.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Navigera")
+                                    Text(stringResource(R.string.btn_navigate))
                                 }
                             }
                         }
@@ -184,8 +185,8 @@ fun SavedSpotsScreen(
     spotToDelete?.let { spot ->
         AlertDialog(
             onDismissRequest = { spotToDelete = null },
-            title = { Text("Ta bort plats") },
-            text = { Text("Vill du ta bort '${spot.title}'?") },
+            title = { Text(spot.title) },
+            text = { Text("Vill du ta bort / Delete '${spot.title}'?") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -196,12 +197,12 @@ fun SavedSpotsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Ta bort")
+                    Text("OK")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { spotToDelete = null }) {
-                    Text("Avbryt")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )

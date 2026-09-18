@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Svampstället</string>
+
+    <!-- Navigation tabs -->
+    <string name="nav_map">Map</string>
+    <string name="nav_saved">Saved Spots</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_default_toggle">Default Mushroom Toggle</string>
+    <string name="settings_default_toggle_desc">Show Funnel chanterelle by default on app startup</string>
+    <string name="settings_coverage_title">Coverage Area</string>
+    <string name="settings_coverage_desc">Forest and hotspot data is currently supported in:\n• Ale municipality\n• Lilla Edet municipality\n• Gothenburg (Göteborg)\n• Lidköping\n• Mark municipality</string>
+    <string name="settings_about_title">About Svampstället</string>
+    <string name="settings_about_desc">Svampstället v1.0\nData sources: Lantmäteriet, SLU Forest Data Lab, OpenFreeMap, ESRI\nMushroom data: Local MBTiles &amp; binary inspection grid</string>
+
+    <!-- Layer Selection Sheet -->
+    <string name="layers_sheet_title">Map type and layers</string>
+    <string name="layers_basemap_section">Basemap</string>
+    <string name="layers_overlay_section">Map layers</string>
+    <string name="basemap_satellite">Satellite</string>
+    <string name="basemap_satellite_desc">High-resolution satellite imagery (ESRI)</string>
+    <string name="basemap_liberty">Liberty</string>
+    <string name="basemap_liberty_desc">Topographic terrain map</string>
+    <string name="basemap_positron">Positron</string>
+    <string name="basemap_positron_desc">Light minimalist map</string>
+    <string name="layer_trattkantarell">Funnel chanterelle (Hotspots)</string>
+    <string name="layer_trattkantarell_desc">Mature coniferous and mixed forest with optimal moisture</string>
+    <string name="layer_gulkantarell">Golden chanterelle (Hotspots)</string>
+    <string name="layer_gulkantarell_desc">Coming soon • Algorithm in development</string>
+    <string name="layer_gulkantarell_toast">Golden chanterelle is coming in a future update!</string>
+    <string name="layer_skogstyp">Forest type &amp; clearcuts</string>
+    <string name="layer_skogstyp_desc">Spruce, pine, deciduous and blue clearcuts</string>
+    <string name="layer_markfuktighet">Soil moisture (SLU DTW)</string>
+    <string name="layer_markfuktighet_desc">Moisture classes from dry soil to wetland</string>
+    <string name="layer_saved_spots">Saved spots</string>
+    <string name="layer_saved_spots_desc">Show your personal foraging markers</string>
+
+    <!-- Detail Sheet -->
+    <string name="detail_forest_analysis">Forest analysis</string>
+    <string name="detail_calculated_prob">Calculated probability</string>
+    <string name="detail_hotspot_label">Hotspot for Funnel chanterelle</string>
+    <string name="detail_forest_type">Forest type</string>
+    <string name="detail_forest_age">Stand age</string>
+    <string name="detail_moisture">Soil moisture</string>
+    <string name="detail_assessment">Ecological assessment</string>
+    <string name="detail_no_data">No forest data available for this coordinate.</string>
+    <string name="btn_navigate">Directions</string>
+    <string name="btn_share">Share</string>
+    <string name="btn_save_spot">Save spot</string>
+    <string name="share_subject">Svampstället Location</string>
+    <string name="share_text_prefix">Check out this foraging spot in the forest:</string>
+    <string name="share_chooser_title">Share spot via</string>
+    <string name="toast_spot_saved">The spot has been saved</string>
+
+    <!-- Save Spot Dialog -->
+    <string name="dialog_save_title">Save mushroom spot</string>
+    <string name="dialog_field_name">Spot name (e.g. Best chanterelle slope)</string>
+    <string name="dialog_field_mushroom">Mushroom species</string>
+    <string name="dialog_field_amount">Amount / Estimate (e.g. 2 liters, Abundant)</string>
+    <string name="dialog_field_note">Notes (optional)</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_save">Save</string>
+
+    <!-- Saved Spots Screen -->
+    <string name="saved_screen_title">Saved spots</string>
+    <string name="saved_search_placeholder">Search saved spots...</string>
+    <string name="saved_empty_title">No saved spots yet</string>
+    <string name="saved_empty_desc">Tap a location on the map to analyze and save it here.</string>
+    <string name="saved_no_match_title">No spots match your search</string>
+    <string name="saved_no_match_desc">Try searching for a different mushroom species or spot name.</string>
+    <string name="btn_show_on_map">View on map</string>
+    <string name="filter_active_banner">Showing only:</string>
+    <string name="btn_show_all">Show all</string>
+    <string name="btn_close">Close</string>
+
+    <!-- Legends -->
+    <string name="legend_title_skogstyp">Color Legend: Forest Type</string>
+    <string name="legend_title_markfuktighet">Color Legend: Soil Moisture</string>
+    <string name="legend_title_trattkantarell">Color Legend: Funnel Chanterelle</string>
+    <string name="legend_title_gulkantarell">Color Legend: Golden Chanterelle</string>
+    <string name="legend_close">Close</string>
+</resources>

@@ -19,7 +19,7 @@ class MBTilesTileSource(private val context: Context, private val preferredPort:
     var actualPort: Int = 0
         private set
     
-    private val dbs = mutableMapOf<String, SQLiteDatabase>()
+    private val dbs = mutableMapOf<String, MutableList<SQLiteDatabase>>()
 
     fun start() {
         if (isRunning) return
@@ -50,7 +50,9 @@ class MBTilesTileSource(private val context: Context, private val preferredPort:
         isRunning = false
         serverSocket?.close()
         threadPool.shutdown()
-        dbs.values.forEach { it.close() }
+        dbs.values.flatten().forEach {
+            try { it.close() } catch (e: Exception) {}
+        }
         dbs.clear()
     }
 
@@ -105,41 +107,68 @@ class MBTilesTileSource(private val context: Context, private val preferredPort:
         return null
     }
 
-    private fun getTile(layer: String, z: Int, x: Int, y: Int): ByteArray? {
-        val dbFile = when (layer) {
-            "trattkantarell" -> File(context.filesDir, "hotspot_trattkantarell.mbtiles")
-            "gulkantarell" -> File(context.filesDir, "hotspot_gulkantarell.mbtiles")
-            "markfuktighet" -> File(context.filesDir, "markfuktighet.mbtiles")
-            "skogstyp" -> File(context.filesDir, "skogstyp.mbtiles")
-            "basemap" -> {
-                val f = File(context.filesDir, "opentopomap_ale_lilla_edet.mbtiles")
-                if (!f.exists()) {
-                    try {
-                        context.assets.open("opentopomap_ale_lilla_edet.mbtiles").use { input ->
-                            FileOutputStream(f).use { output ->
-                                input.copyTo(output)
+    private var assetsExtracted = false
+
+    private fun ensureAssetsExtracted() {
+        if (assetsExtracted) return
+        assetsExtracted = true
+        try {
+            val list = context.assets.list("") ?: return
+            for (name in list) {
+                if (name.endsWith(".mbtiles")) {
+                    val f = File(context.filesDir, name)
+                    if (!f.exists() || f.length() == 0L) {
+                        try {
+                            context.assets.open(name).use { input ->
+                                FileOutputStream(f).use { output ->
+                                    input.copyTo(output)
+                                }
                             }
+                            Log.i("MBTilesTileSource", "Extracted $name from assets (${f.length()} bytes)")
+                        } catch (e: Exception) {
+                            Log.e("MBTilesTileSource", "Failed to extract asset $name", e)
                         }
-                    } catch (e: Exception) {
-                        Log.e("MBTilesTileSource", "Failed to copy basemap from assets", e)
                     }
                 }
-                f
             }
-            else -> return null
+        } catch (e: Exception) {
+            Log.e("MBTilesTileSource", "Failed to list assets", e)
         }
-        
-        if (dbFile.exists()) {
-            val db = dbs.getOrPut(layer) {
-                Log.i("MBTilesTileSource", "Opening database: ${dbFile.name} (${dbFile.length()} bytes)")
-                SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-            }
-            val tileData = getTileFromDb(db, z, x, y)
-            return tileData
-        } else {
-            Log.w("MBTilesTileSource", "MBTiles file not found: ${dbFile.absolutePath}")
-        }
+    }
 
+    private fun getDbsForLayer(layer: String): List<SQLiteDatabase> {
+        return dbs.getOrPut(layer) {
+            ensureAssetsExtracted()
+            val pattern = when (layer) {
+                "trattkantarell" -> Regex(".*trattkantarell.*\\.mbtiles$")
+                "gulkantarell" -> Regex(".*gulkantarell.*\\.mbtiles$")
+                "markfuktighet" -> Regex(".*markfuktighet.*\\.mbtiles$")
+                "skogstyp" -> Regex(".*skogstyp.*\\.mbtiles$")
+                "basemap" -> Regex(".*opentopomap.*\\.mbtiles$")
+                else -> return@getOrPut mutableListOf()
+            }
+            val list = mutableListOf<SQLiteDatabase>()
+            context.filesDir.listFiles()?.forEach { file ->
+                if (pattern.matches(file.name) && file.length() > 0) {
+                    try {
+                        val db = SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+                        Log.i("MBTilesTileSource", "Opened MBTiles for $layer: ${file.name} (${file.length()} bytes)")
+                        list.add(db)
+                    } catch (e: Exception) {
+                        Log.e("MBTilesTileSource", "Failed to open ${file.name}", e)
+                    }
+                }
+            }
+            list
+        }
+    }
+
+    private fun getTile(layer: String, z: Int, x: Int, y: Int): ByteArray? {
+        val databases = getDbsForLayer(layer)
+        for (db in databases) {
+            val tileData = getTileFromDb(db, z, x, y)
+            if (tileData != null) return tileData
+        }
         return null
     }
 

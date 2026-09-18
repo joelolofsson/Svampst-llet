@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -33,6 +34,7 @@ fun DetailBottomSheet(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val toastSaved = stringResource(R.string.toast_spot_saved)
 
     val inspection = remember(location) {
         inspector.inspect(location.latitude, location.longitude)
@@ -57,7 +59,7 @@ fun DetailBottomSheet(
             ) {
                 Column {
                     Text(
-                        text = "Skogsinspektion",
+                        text = stringResource(R.string.detail_forest_analysis),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -100,7 +102,7 @@ fun DetailBottomSheet(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "Motivering och analys",
+                            text = stringResource(R.string.detail_assessment),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -113,10 +115,10 @@ fun DetailBottomSheet(
                         HorizontalDivider()
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        DetailRow(label = "Skogstyp", value = inspection.dominantSpecies)
-                        DetailRow(label = "Skogens ålder", value = "${inspection.age} år")
+                        DetailRow(label = stringResource(R.string.detail_forest_type), value = inspection.dominantSpecies)
+                        DetailRow(label = stringResource(R.string.detail_forest_age), value = "${inspection.age} år")
                         DetailRow(
-                            label = "Markfuktighet",
+                            label = stringResource(R.string.detail_moisture),
                             value = when (inspection.moistureClass) {
                                 1 -> "Torr–frisk mark (Klass 1)"
                                 2 -> "Frisk–fuktig mark (Klass 2, Optimal)"
@@ -137,7 +139,7 @@ fun DetailBottomSheet(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Text(
-                        text = "Ingen skogsdata tillgänglig för denna koordinat.",
+                        text = stringResource(R.string.detail_no_data),
                         modifier = Modifier.padding(16.dp),
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -147,6 +149,10 @@ fun DetailBottomSheet(
             Spacer(modifier = Modifier.height(20.dp))
 
             // ACTION BUTTONS
+            val sharePrefix = stringResource(R.string.share_text_prefix)
+            val shareSubject = stringResource(R.string.share_subject)
+            val chooserTitle = stringResource(R.string.share_chooser_title)
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -171,31 +177,30 @@ fun DetailBottomSheet(
                 ) {
                     Icon(Icons.Filled.Navigation, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Navigera")
+                    Text(stringResource(R.string.btn_navigate))
                 }
 
                 OutlinedButton(
                     onClick = {
                         val lat = location.latitude
                         val lon = location.longitude
-                        val shareText = "Kolla in den här platsen i skogen:\nhttps://maps.google.com/?q=$lat,$lon"
+                        val shareText = "$sharePrefix\nhttps://maps.google.com/?q=$lat,$lon"
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "Svampstället Plats")
+                            putExtra(Intent.EXTRA_SUBJECT, shareSubject)
                             putExtra(Intent.EXTRA_TEXT, shareText)
                         }
-                        context.startActivity(Intent.createChooser(shareIntent, "Dela plats via"))
+                        context.startActivity(Intent.createChooser(shareIntent, chooserTitle))
                     },
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Dela")
+                    Text(stringResource(R.string.btn_share))
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
-
             Button(
                 onClick = { showSaveDialog = true },
                 modifier = Modifier.fillMaxWidth(),
@@ -206,7 +211,7 @@ fun DetailBottomSheet(
             ) {
                 Icon(Icons.Filled.BookmarkAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Spara plats", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.btn_save_spot), fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -220,7 +225,7 @@ fun DetailBottomSheet(
             onSave = { spot ->
                 coroutineScope.launch {
                     savedSpotRepo.addSpot(spot)
-                    Toast.makeText(context, "Platsen har sparats", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, toastSaved, Toast.LENGTH_SHORT).show()
                     showSaveDialog = false
                 }
             }
@@ -259,19 +264,19 @@ fun SaveSpotDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Spara plats") },
+        title = { Text(stringResource(R.string.dialog_save_title)) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Namn på stället (t.ex. Vid bäcken)") },
+                    label = { Text(stringResource(R.string.dialog_field_name)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Text("Svampart:", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.dialog_field_mushroom), style = MaterialTheme.typography.labelMedium)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     mushroomTypes.forEach { type ->
                         FilterChip(
@@ -283,7 +288,7 @@ fun SaveSpotDialog(
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Mängd:", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.dialog_field_amount), style = MaterialTheme.typography.labelMedium)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     amounts.forEach { a ->
                         FilterChip(
@@ -298,7 +303,7 @@ fun SaveSpotDialog(
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
-                    label = { Text("Anteckning (frivillig)") },
+                    label = { Text(stringResource(R.string.dialog_field_note)) },
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 3
                 )
@@ -322,12 +327,12 @@ fun SaveSpotDialog(
                     )
                 }
             ) {
-                Text("Spara")
+                Text(stringResource(R.string.btn_save))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Avbryt")
+                Text(stringResource(R.string.btn_cancel))
             }
         }
     )

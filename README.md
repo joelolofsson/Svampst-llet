@@ -40,6 +40,21 @@ Projektet fokuserar initialt på **Trattkantarell (*Craterellus tubaeformis*)**,
 - **Smart Navigering:** Klicka på "Navigera" för att öppna platsen som en nål i Google Maps så att du i lugn och ro kan granska rutten och välja när du startar bil- eller gångvägledningen.
 - **Teaser för Gul Kantarell:** Förberett lagerval för Gul kantarell med förklarande dialog och information om kommande uppdatering.
 - **100 % Offline-Kapacitet:** All svampdata, inspektionsraster och terrängkartor lagras lokalt på enheten via MBTiles och binärkomprimerade matriser.
+- **Flerspråkigt Stöd:** Automatiskt stöd för både **svenska** och **engelska** baserat på telefonens systemspråk.
+
+---
+
+## Områdestäckning / Supported Areas
+
+Systemets skogliga beräkningsmodeller och rasterlager täcker följande kommuner och städer:
+- **Ale kommun**
+- **Lilla Edet kommun**
+- **Göteborg** (Gothenburg)
+- **Lidköping**
+- **Marks kommun**
+
+> [!NOTE]
+> Hotspot-modellen och punktinspektionen är kalibrerade för ovanstående kommuner. Vid klick utanför detta område visas standardbaskartan, med meddelande om att lokal skogsdata saknas.
 
 ---
 
@@ -276,20 +291,37 @@ En ren SQLite-databas hanterar användarens egna markeringar:
    export PATH=$JAVA_HOME/bin:$PATH
    ```
 
-3. **Bygg Debug APK:**
-   ```bash
-   ./gradlew assembleDebug
-   ```
-   Den färdiga APK-filen hamnar i:
-   `app/build/outputs/apk/debug/app-debug.apk`
+3. **Regionala Product Flavors & App Bundles (.aab) / APK:**
+   Appen är uppdelad i Gradle-flavors så att man kan bygga kompakta regionala varianter eller en fullständig bundle med alla regioner:
 
-4. **Installera på ansluten Android-enhet via ADB:**
+   | Flavor | Täckningsområde | Release AAB (Bundle) | Release APK (arm64-v8a) |
+   | :--- | :--- | :--- | :--- |
+   | `goteborg` | Göteborg | **26 MB** | **31 MB** |
+   | `lidkoping` | Lidköping | **26 MB** | **32 MB** |
+   | `mark` | Marks kommun | **39 MB** | **45 MB** |
+   | `aleLillaEdet` | Ale & Lilla Edet (inkl. offline OpenTopoMap) | **79 MB** | **84 MB** |
+   | `full` | Alla 5 kommuner kombinerade | **146 MB** | **151 MB** |
+
+4. **Bygg en specifik region (t.ex. Göteborg eller Mark):**
    ```bash
-   adb install -r app/build/outputs/apk/debug/app-debug.apk
+   # Bygg App Bundle (.aab) för Göteborg
+   ./gradlew bundleGoteborgRelease
+
+   # Bygg fristående Release APK för Marks kommun
+   ./gradlew assembleMarkRelease
    ```
 
-5. **Starta applikationen på enheten:**
+5. **Bygg alla regioner samtidigt:**
    ```bash
+   ./gradlew bundleRelease assembleRelease
+   ```
+   Artefakterna genereras i:
+   - App Bundles: `app/build/outputs/bundle/<flavor>Release/app-<flavor>-release.aab`
+   - Release APKs: `app/build/outputs/apk/<flavor>/release/app-<flavor>-release.apk`
+
+6. **Installera och starta på enhet via ADB (exempel Göteborg):**
+   ```bash
+   adb install -r app/build/outputs/apk/goteborg/release/app-goteborg-release.apk
    adb shell am start -n se.svampradar.app/.MainActivity
    ```
 

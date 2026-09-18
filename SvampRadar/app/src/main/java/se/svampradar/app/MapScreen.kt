@@ -129,8 +129,8 @@ fun MapScreen(
                 }
 
                 map.cameraPosition = CameraPosition.Builder()
-                    .target(LatLng(58.13, 12.15))
-                    .zoom(11.0)
+                    .target(LatLng(BuildConfig.INITIAL_LAT, BuildConfig.INITIAL_LON))
+                    .zoom(BuildConfig.INITIAL_ZOOM)
                     .build()
             }
         }
