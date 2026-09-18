@@ -1,6 +1,8 @@
 package se.svampradar.app
 
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -15,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -35,6 +38,7 @@ fun LayerSelectionSheet(
     onToggleSavedSpots: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedLegendLayer by remember { mutableStateOf<String?>(null) }
 
@@ -126,12 +130,16 @@ fun LayerSelectionSheet(
                 onInfoClick = { selectedLegendLayer = "trattkantarell" }
             )
 
-            // GUL KANTARELL
+            // GUL KANTARELL (TEASER)
             LayerItem(
                 title = "Gul kantarell (Hotspots)",
-                description = "Ljusare och friskare skogsmiljöer",
-                isChecked = isGulKantarellActive,
-                onCheckedChange = { onToggleGulKantarell() },
+                description = "Kommer snart • Algoritm under utveckling",
+                isChecked = false,
+                enabled = false,
+                onDisabledClick = {
+                    Toast.makeText(context, "Gul kantarell kommer i en framtida uppdatering!", Toast.LENGTH_SHORT).show()
+                },
+                onCheckedChange = { },
                 onInfoClick = { selectedLegendLayer = "gulkantarell" }
             )
 
@@ -179,34 +187,52 @@ private fun LayerItem(
     title: String,
     description: String,
     isChecked: Boolean,
+    enabled: Boolean = true,
+    onDisabledClick: (() -> Unit)? = null,
     onCheckedChange: (Boolean) -> Unit,
     onInfoClick: (() -> Unit)?
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (!enabled && onDisabledClick != null) {
+                    Modifier.clickable { onDisabledClick() }
+                } else {
+                    Modifier
+                }
+            )
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = title, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = title, 
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
                 if (onInfoClick != null) {
                     IconButton(onClick = onInfoClick, modifier = Modifier.size(28.dp)) {
                         Icon(
                             Icons.Filled.Info,
                             contentDescription = "Förklaring",
                             modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
                     }
                 }
             }
-            Text(text = description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = description, 
+                style = MaterialTheme.typography.bodySmall, 
+                color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
         }
         Switch(
             checked = isChecked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = if (enabled) onCheckedChange else null,
+            enabled = enabled
         )
     }
 }

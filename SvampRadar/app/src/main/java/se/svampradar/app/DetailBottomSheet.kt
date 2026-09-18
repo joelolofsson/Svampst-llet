@@ -155,14 +155,14 @@ fun DetailBottomSheet(
                     onClick = {
                         val lat = location.latitude
                         val lon = location.longitude
-                        val navUri = Uri.parse("google.navigation:q=$lat,$lon")
-                        val mapIntent = Intent(Intent.ACTION_VIEW, navUri).apply {
+                        val uri = Uri.parse("geo:$lat,$lon?q=$lat,$lon(Svampstället)")
+                        val mapIntent = Intent(Intent.ACTION_VIEW, uri).apply {
                             setPackage("com.google.android.apps.maps")
                         }
                         try {
                             context.startActivity(mapIntent)
                         } catch (e: Exception) {
-                            val fallbackUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$lat,$lon")
+                            val fallbackUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lon")
                             context.startActivity(Intent(Intent.ACTION_VIEW, fallbackUri))
                         }
                     },
@@ -181,7 +181,7 @@ fun DetailBottomSheet(
                         val shareText = "Kolla in den här platsen i skogen:\nhttps://maps.google.com/?q=$lat,$lon"
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "SvampRadar Plats")
+                            putExtra(Intent.EXTRA_SUBJECT, "Svampstället Plats")
                             putExtra(Intent.EXTRA_TEXT, shareText)
                         }
                         context.startActivity(Intent.createChooser(shareIntent, "Dela plats via"))

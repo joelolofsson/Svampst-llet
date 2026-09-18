@@ -153,14 +153,17 @@ fun SavedSpotsScreen(
 
                                 OutlinedButton(
                                     onClick = {
-                                        val navUri = Uri.parse("google.navigation:q=${spot.latitude},${spot.longitude}")
-                                        val mapIntent = Intent(Intent.ACTION_VIEW, navUri).apply {
+                                        val lat = spot.latitude
+                                        val lon = spot.longitude
+                                        val label = Uri.encode(spot.title.ifBlank { "Svampstället" })
+                                        val uri = Uri.parse("geo:$lat,$lon?q=$lat,$lon($label)")
+                                        val mapIntent = Intent(Intent.ACTION_VIEW, uri).apply {
                                             setPackage("com.google.android.apps.maps")
                                         }
                                         try {
                                             context.startActivity(mapIntent)
                                         } catch (e: Exception) {
-                                            val fallbackUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${spot.latitude},${spot.longitude}")
+                                            val fallbackUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lon")
                                             context.startActivity(Intent(Intent.ACTION_VIEW, fallbackUri))
                                         }
                                     },
