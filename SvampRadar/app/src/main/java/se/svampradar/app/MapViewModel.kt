@@ -15,6 +15,9 @@ class MapViewModel : ViewModel() {
     private val _isMarkfuktighetActive = MutableStateFlow(false)
     val isMarkfuktighetActive: StateFlow<Boolean> = _isMarkfuktighetActive.asStateFlow()
 
+    private val _isSkogstypActive = MutableStateFlow(false)
+    val isSkogstypActive: StateFlow<Boolean> = _isSkogstypActive.asStateFlow()
+
     fun toggleTrattkantarell() {
         _isTrattkantarellActive.value = !_isTrattkantarellActive.value
     }
@@ -25,5 +28,9 @@ class MapViewModel : ViewModel() {
 
     fun toggleMarkfuktighet() {
         _isMarkfuktighetActive.value = !_isMarkfuktighetActive.value
+    }
+
+    fun toggleSkogstyp() {
+        _isSkogstypActive.value = !_isSkogstypActive.value
     }
 }

@@ -110,6 +110,7 @@ class MBTilesTileSource(private val context: Context, private val preferredPort:
             "trattkantarell" -> File(context.filesDir, "hotspot_trattkantarell.mbtiles")
             "gulkantarell" -> File(context.filesDir, "hotspot_gulkantarell.mbtiles")
             "markfuktighet" -> File(context.filesDir, "markfuktighet.mbtiles")
+            "skogstyp" -> File(context.filesDir, "skogstyp.mbtiles")
             "basemap" -> {
                 val f = File(context.filesDir, "opentopomap_ale_lilla_edet.mbtiles")
                 if (!f.exists()) {

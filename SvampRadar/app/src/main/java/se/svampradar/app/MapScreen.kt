@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
@@ -45,6 +47,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
+import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -70,11 +73,16 @@ fun MapScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val prefManager = remember { PreferencesManager(context) }
+    val inspector = remember { ForestDataInspector(context) }
+    val savedSpotRepo = remember { SavedSpotRepository(context) }
 
     val isTrattkantarellActive by viewModel.isTrattkantarellActive.collectAsState()
     val isGulKantarellActive by viewModel.isGulKantarellActive.collectAsState()
     val isMarkfuktighetActive by viewModel.isMarkfuktighetActive.collectAsState()
-    val userMapType by prefManager.mapTypeFlow.collectAsState(initial = "Liberty")
+    val isSkogstypActive by viewModel.isSkogstypActive.collectAsState()
+    val savedSpots by savedSpotRepo.spotsFlow.collectAsState()
+
+    val userMapType by prefManager.mapTypeFlow.collectAsState(initial = "Satellit")
 
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
     var selectedLocation by remember { mutableStateOf<LatLng?>(null) }
@@ -119,7 +127,7 @@ fun MapScreen(
     }
 
     val isDarkTheme = isSystemInDarkTheme()
-    val mapType = if (!isOnline) "OfflineBase" else if (isDarkTheme) "Dark" else userMapType
+    val mapType = if (!isOnline) "OfflineBase" else if (isDarkTheme && userMapType == "Liberty") "Dark" else userMapType
 
     val mapView = remember {
         MapView(context).apply {
@@ -127,6 +135,12 @@ fun MapScreen(
                 mapLibreMap = map
                 map.uiSettings.isCompassEnabled = true
                 
+                // Klick på kartan öppnar detaljer & inspektion
+                map.addOnMapClickListener { point ->
+                    selectedLocation = point
+                    true
+                }
+
                 map.addOnMapLongClickListener { point ->
                     selectedLocation = point
                     true
@@ -145,7 +159,6 @@ fun MapScreen(
         val map = mapLibreMap ?: return@LaunchedEffect
         
         val styleStr = when(mapType) {
-            "Liberty" -> "https://tiles.openfreemap.org/styles/liberty"
             "Satellit" -> """
                 {
                   "version": 8,
@@ -167,30 +180,9 @@ fun MapScreen(
                   ]
                 }
             """.trimIndent()
+            "Liberty" -> "https://tiles.openfreemap.org/styles/liberty"
             "Positron" -> "https://tiles.openfreemap.org/styles/positron"
-            "Bright" -> "https://tiles.openfreemap.org/styles/bright"
             "Dark" -> "https://tiles.openfreemap.org/styles/dark"
-            "OpenTopoMap" -> """
-                {
-                  "version": 8,
-                  "sources": {
-                    "osm": {
-                      "type": "raster",
-                      "tiles": ["https://tile.opentopomap.org/{z}/{x}/{y}.png"],
-                      "tileSize": 256
-                    }
-                  },
-                  "layers": [
-                    {
-                      "id": "osm",
-                      "type": "raster",
-                      "source": "osm",
-                      "minzoom": 0,
-                      "maxzoom": 22
-                    }
-                  ]
-                }
-            """.trimIndent()
             "OfflineBase" -> """
                 {
                   "version": 8,
@@ -247,6 +239,26 @@ fun MapScreen(
         )
     }
 
+    LaunchedEffect(isSkogstypActive, mapLibreMap) {
+        mapLibreMap?.style?.getLayer("layer_skogstyp")?.setProperties(
+            visibility(if (isSkogstypActive) VISIBLE else NONE)
+        )
+    }
+
+    // Rendera sparade svampmarkörer på kartan
+    LaunchedEffect(savedSpots, mapLibreMap) {
+        val map = mapLibreMap ?: return@LaunchedEffect
+        map.clear()
+        savedSpots.forEach { spot ->
+            map.addMarker(
+                MarkerOptions()
+                    .position(LatLng(spot.latitude, spot.longitude))
+                    .title("🍄 ${spot.title} (${spot.mushroomType})")
+                    .snippet("${spot.amount} • ${spot.date}\n${spot.note}")
+            )
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -261,6 +273,8 @@ fun MapScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             mbtilesServer.stop()
+            inspector.close()
+            savedSpotRepo.close()
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
@@ -271,17 +285,22 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        // SCROLLBART FILTER CHIPS ROW
         Row(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(16.dp)
+                .padding(top = 12.dp)
         ) {
             Card(
                 elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
             ) {
-                Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
                     FilterChip(
                         selected = isTrattkantarellActive,
                         onClick = { viewModel.toggleTrattkantarell() },
@@ -291,7 +310,7 @@ fun MapScreen(
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     FilterChip(
                         selected = isGulKantarellActive,
                         onClick = { viewModel.toggleGulKantarell() },
@@ -301,7 +320,17 @@ fun MapScreen(
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    FilterChip(
+                        selected = isSkogstypActive,
+                        onClick = { viewModel.toggleSkogstyp() },
+                        label = { Text("🌲 Skogstyp") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFFC8E6C9),
+                            selectedLabelColor = Color(0xFF1B5E20)
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
                     FilterChip(
                         selected = isMarkfuktighetActive,
                         onClick = { viewModel.toggleMarkfuktighet() },
@@ -364,6 +393,8 @@ fun MapScreen(
     selectedLocation?.let { location ->
         DetailBottomSheet(
             location = location,
+            inspector = inspector,
+            savedSpotRepo = savedSpotRepo,
             onDismissRequest = { selectedLocation = null }
         )
     }
@@ -392,6 +423,31 @@ private fun setupLayers(
         }
     }
 
+    // 1. Skogstyp & Kalhyggen-lager (underst bland overlays)
+    val sourceSkog = mbtilesServer.createRasterSource("source_skogstyp", "skogstyp")
+    if (style.getSource("source_skogstyp") == null) {
+        style.addSource(sourceSkog)
+    }
+    if (style.getLayer("layer_skogstyp") == null) {
+        style.addLayer(RasterLayer("layer_skogstyp", "source_skogstyp").withProperties(
+            visibility(NONE),
+            rasterOpacity(0.55f)
+        ))
+    }
+
+    // 2. Markfuktighet-lager
+    val sourceFukt = mbtilesServer.createRasterSource("source_markfuktighet", "markfuktighet")
+    if (style.getSource("source_markfuktighet") == null) {
+        style.addSource(sourceFukt)
+    }
+    if (style.getLayer("layer_markfuktighet") == null) {
+        style.addLayer(RasterLayer("layer_markfuktighet", "source_markfuktighet").withProperties(
+            visibility(NONE),
+            rasterOpacity(0.55f)
+        ))
+    }
+
+    // 3. Hotspot Trattkantarell (ovanpå bakgrundslagren)
     val sourceTratt = mbtilesServer.createRasterSource("source_trattkantarell", "trattkantarell")
     if (style.getSource("source_trattkantarell") == null) {
         style.addSource(sourceTratt)
@@ -399,10 +455,11 @@ private fun setupLayers(
     if (style.getLayer("layer_trattkantarell") == null) {
         style.addLayer(RasterLayer("layer_trattkantarell", "source_trattkantarell").withProperties(
             visibility(VISIBLE),
-            rasterOpacity(0.6f)
+            rasterOpacity(0.65f)
         ))
     }
 
+    // 4. Hotspot Gul kantarell
     val sourceGul = mbtilesServer.createRasterSource("source_gulkantarell", "gulkantarell")
     if (style.getSource("source_gulkantarell") == null) {
         style.addSource(sourceGul)
@@ -410,22 +467,7 @@ private fun setupLayers(
     if (style.getLayer("layer_gulkantarell") == null) {
         style.addLayer(RasterLayer("layer_gulkantarell", "source_gulkantarell").withProperties(
             visibility(NONE),
-            rasterOpacity(0.6f)
+            rasterOpacity(0.65f)
         ))
-    }
-
-    val sourceFukt = mbtilesServer.createRasterSource("source_markfuktighet", "markfuktighet")
-    if (style.getSource("source_markfuktighet") == null) {
-        style.addSource(sourceFukt)
-    }
-    if (style.getLayer("layer_markfuktighet") == null) {
-        // Place markfuktighet under the mushroom layers with 0.5f opacity
-        style.addLayerBelow(
-            RasterLayer("layer_markfuktighet", "source_markfuktighet").withProperties(
-                visibility(NONE),
-                rasterOpacity(0.55f)
-            ),
-            "layer_trattkantarell"
-        )
     }
 }

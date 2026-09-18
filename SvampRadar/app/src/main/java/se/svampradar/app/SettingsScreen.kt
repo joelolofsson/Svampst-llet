@@ -43,7 +43,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         ListItem(
             headlineContent = { Text("Karttyp") },
             supportingContent = {
-                val mapOptions = listOf("Liberty", "Satellit", "OpenTopoMap", "Positron", "Bright", "Dark")
+                val mapOptions = listOf("Satellit", "Liberty", "Positron")
                 Column(Modifier.selectableGroup()) {
                     mapOptions.forEach { text ->
                         Row(
