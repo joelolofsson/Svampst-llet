@@ -1,0 +1,21 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Base background for foreground icon (optional, just to position) -->
+    
+    <path
+        android:fillColor="#D84315"
+        android:pathData="M 54,34 C 74,34 84,48 84,54 C 84,60 74,60 54,60 C 34,60 24,60 24,54 C 24,48 34,34 54,34 Z" />
+        
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 44,44 A 4,4 0 1,1 44.01,44 Z M 64,48 A 3,3 0 1,1 64.01,48 Z M 54,40 A 5,5 0 1,1 54.01,40 Z" />
+
+    <path
+        android:fillColor="#FFF3E0"
+        android:pathData="M 48,60 L 60,60 C 60,60 62,70 60,74 C 58,78 50,78 48,74 C 46,70 48,60 48,60 Z" />
+
+</vector>

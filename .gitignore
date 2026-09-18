@@ -1,0 +1,27 @@
+# Android & Gradle
+.gradle/
+build/
+app/build/
+*.apk
+*.aab
+local.properties
+.idea/
+*.iml
+.kotlin/
+jdk-17/
+gradle-8.9/
+*.zip
+*.zip.*
+*.log
+
+# Geodata large binary files
+*.mbtiles
+geodata/*.tif*
+geodata/*.geojson
+geodata/*.json
+geodata/conda-env/
+geodata/venv/
+geodata/bin/
+
+# Temporary / Screenshots
+screenshot*.png
