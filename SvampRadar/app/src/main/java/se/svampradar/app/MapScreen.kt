@@ -5,41 +5,20 @@ import android.content.pm.PackageManager
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -47,6 +26,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -62,7 +42,6 @@ import org.maplibre.android.style.layers.PropertyFactory.rasterOpacity
 import org.maplibre.android.style.layers.Property.VISIBLE
 import org.maplibre.android.style.layers.Property.NONE
 import org.maplibre.android.style.layers.RasterLayer
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +51,7 @@ fun MapScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
     val prefManager = remember { PreferencesManager(context) }
     val inspector = remember { ForestDataInspector(context) }
     val savedSpotRepo = remember { SavedSpotRepository(context) }
@@ -80,9 +60,12 @@ fun MapScreen(
     val isGulKantarellActive by viewModel.isGulKantarellActive.collectAsState()
     val isMarkfuktighetActive by viewModel.isMarkfuktighetActive.collectAsState()
     val isSkogstypActive by viewModel.isSkogstypActive.collectAsState()
+    val isSavedSpotsActive by viewModel.isSavedSpotsActive.collectAsState()
+    val selectedSpotForMap by viewModel.selectedSpotForMap.collectAsState()
     val savedSpots by savedSpotRepo.spotsFlow.collectAsState()
 
     val userMapType by prefManager.mapTypeFlow.collectAsState(initial = "Satellit")
+    var showLayerSheet by remember { mutableStateOf(false) }
 
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
     var selectedLocation by remember { mutableStateOf<LatLng?>(null) }
@@ -135,7 +118,6 @@ fun MapScreen(
                 mapLibreMap = map
                 map.uiSettings.isCompassEnabled = true
                 
-                // Klick på kartan öppnar detaljer & inspektion
                 map.addOnMapClickListener { point ->
                     selectedLocation = point
                     true
@@ -245,17 +227,38 @@ fun MapScreen(
         )
     }
 
-    // Rendera sparade svampmarkörer på kartan
-    LaunchedEffect(savedSpots, mapLibreMap) {
+    // Rendera sparade svampmarkörer på kartan (styrs av isSavedSpotsActive och ev. filtrerat ställe)
+    LaunchedEffect(savedSpots, isSavedSpotsActive, selectedSpotForMap, mapLibreMap) {
         val map = mapLibreMap ?: return@LaunchedEffect
         map.clear()
-        savedSpots.forEach { spot ->
+
+        if (!isSavedSpotsActive) {
+            return@LaunchedEffect
+        }
+
+        if (selectedSpotForMap != null) {
+            val spot = selectedSpotForMap!!
             map.addMarker(
                 MarkerOptions()
                     .position(LatLng(spot.latitude, spot.longitude))
-                    .title("🍄 ${spot.title} (${spot.mushroomType})")
+                    .title("${spot.title} (${spot.mushroomType})")
                     .snippet("${spot.amount} • ${spot.date}\n${spot.note}")
             )
+            map.animateCamera(
+                CameraUpdateFactory.newLatLngZoom(
+                    LatLng(spot.latitude, spot.longitude),
+                    15.0
+                )
+            )
+        } else {
+            savedSpots.forEach { spot ->
+                map.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(spot.latitude, spot.longitude))
+                        .title("${spot.title} (${spot.mushroomType})")
+                        .snippet("${spot.amount} • ${spot.date}\n${spot.note}")
+                )
+            }
         }
     }
 
@@ -285,61 +288,32 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // SCROLLBART FILTER CHIPS ROW
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 12.dp)
-        ) {
-            Card(
-                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        // FILTER BANNER: Om en specifik plats valts från listan
+        if (selectedSpotForMap != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp),
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shadowElevation = 4.dp
             ) {
                 Row(
-                    modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    FilterChip(
-                        selected = isTrattkantarellActive,
-                        onClick = { viewModel.toggleTrattkantarell() },
-                        label = { Text("🍄 Trattkantarell") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                    Text(
+                        text = "Visar enbart: ${selectedSpotForMap?.title}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    FilterChip(
-                        selected = isGulKantarellActive,
-                        onClick = { viewModel.toggleGulKantarell() },
-                        label = { Text("🍄 Gul kantarell") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    FilterChip(
-                        selected = isSkogstypActive,
-                        onClick = { viewModel.toggleSkogstyp() },
-                        label = { Text("🌲 Skogstyp") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFC8E6C9),
-                            selectedLabelColor = Color(0xFF1B5E20)
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    FilterChip(
-                        selected = isMarkfuktighetActive,
-                        onClick = { viewModel.toggleMarkfuktighet() },
-                        label = { Text("💧 Markfuktighet") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = { viewModel.clearSpotFilter() },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(Icons.Filled.Close, contentDescription = "Visa alla platser", modifier = Modifier.size(16.dp))
+                    }
                 }
             }
         }
@@ -360,34 +334,73 @@ fun MapScreen(
             }
         }
 
-        FloatingActionButton(
-            onClick = {
-                if (locationPermissionGranted) {
-                    mapLibreMap?.locationComponent?.lastKnownLocation?.let { location ->
-                        mapLibreMap?.animateCamera(
-                            CameraUpdateFactory.newLatLngZoom(
-                                LatLng(location.latitude, location.longitude),
-                                14.0
-                            )
-                        )
-                    }
-                } else {
-                    permissionLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        )
-                    )
-                }
-            },
+        // FLOATING ACTION BUTTONS: Höger sida
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.End
         ) {
-            Icon(Icons.Filled.LocationOn, contentDescription = "Center Map")
+            // LAGER-KNAPP
+            FloatingActionButton(
+                onClick = { showLayerSheet = true },
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            ) {
+                Icon(Icons.Filled.Layers, contentDescription = "Karttyp och lager")
+            }
+
+            // GPS CENTRERA-KNAPP
+            FloatingActionButton(
+                onClick = {
+                    if (locationPermissionGranted) {
+                        mapLibreMap?.locationComponent?.lastKnownLocation?.let { location ->
+                            mapLibreMap?.animateCamera(
+                                CameraUpdateFactory.newLatLngZoom(
+                                    LatLng(location.latitude, location.longitude),
+                                    14.0
+                                )
+                            )
+                        }
+                    } else {
+                        permissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        )
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+            ) {
+                Icon(Icons.Filled.LocationOn, contentDescription = "Centrera karta")
+            }
         }
+    }
+
+    // LAGER- OCH KARTTYPSVAL (SHEET)
+    if (showLayerSheet) {
+        LayerSelectionSheet(
+            currentMapType = userMapType,
+            onMapTypeSelected = { type ->
+                coroutineScope.launch {
+                    prefManager.saveMapType(type)
+                }
+            },
+            isTrattkantarellActive = isTrattkantarellActive,
+            onToggleTrattkantarell = { viewModel.toggleTrattkantarell() },
+            isGulKantarellActive = isGulKantarellActive,
+            onToggleGulKantarell = { viewModel.toggleGulKantarell() },
+            isSkogstypActive = isSkogstypActive,
+            onToggleSkogstyp = { viewModel.toggleSkogstyp() },
+            isMarkfuktighetActive = isMarkfuktighetActive,
+            onToggleMarkfuktighet = { viewModel.toggleMarkfuktighet() },
+            isSavedSpotsActive = isSavedSpotsActive,
+            onToggleSavedSpots = { viewModel.toggleSavedSpots() },
+            onDismiss = { showLayerSheet = false }
+        )
     }
 
     selectedLocation?.let { location ->
@@ -423,7 +436,6 @@ private fun setupLayers(
         }
     }
 
-    // 1. Skogstyp & Kalhyggen-lager (underst bland overlays)
     val sourceSkog = mbtilesServer.createRasterSource("source_skogstyp", "skogstyp")
     if (style.getSource("source_skogstyp") == null) {
         style.addSource(sourceSkog)
@@ -435,7 +447,6 @@ private fun setupLayers(
         ))
     }
 
-    // 2. Markfuktighet-lager
     val sourceFukt = mbtilesServer.createRasterSource("source_markfuktighet", "markfuktighet")
     if (style.getSource("source_markfuktighet") == null) {
         style.addSource(sourceFukt)
@@ -447,7 +458,6 @@ private fun setupLayers(
         ))
     }
 
-    // 3. Hotspot Trattkantarell (ovanpå bakgrundslagren)
     val sourceTratt = mbtilesServer.createRasterSource("source_trattkantarell", "trattkantarell")
     if (style.getSource("source_trattkantarell") == null) {
         style.addSource(sourceTratt)
@@ -459,7 +469,6 @@ private fun setupLayers(
         ))
     }
 
-    // 4. Hotspot Gul kantarell
     val sourceGul = mbtilesServer.createRasterSource("source_gulkantarell", "gulkantarell")
     if (style.getSource("source_gulkantarell") == null) {
         style.addSource(sourceGul)

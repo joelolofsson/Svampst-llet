@@ -142,15 +142,15 @@ class ForestDataInspector(private val context: Context) {
 
                 val motivering = buildString {
                     if (score >= 70) {
-                        append("🔥 Hög potential! ")
+                        append("Hög potential. ")
                     } else if (score >= 40) {
-                        append("✨ Bra förutsättningar. ")
+                        append("Goda förutsättningar. ")
                     } else if (total < 20) {
-                        append("❌ Ingen etablerad skog här. ")
+                        append("Ingen etablerad skog här. ")
                     } else if (age < 35) {
-                        append("⚠️ För ung skog ($age år). ")
+                        append("För ung skog ($age år). ")
                     } else if (fukt == 1) {
-                        append("⚠️ Marken är för torr (Klass 1). ")
+                        append("Marken är för torr (Klass 1). ")
                     } else {
                         append("Måttlig potential. ")
                     }

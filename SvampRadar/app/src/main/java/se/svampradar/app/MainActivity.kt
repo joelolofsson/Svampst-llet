@@ -5,8 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -14,7 +15,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -40,9 +44,12 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainApp() {
+    val context = LocalContext.current
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val sharedViewModel: MapViewModel = viewModel()
+    val savedSpotRepo = remember { SavedSpotRepository(context) }
 
     Scaffold(
         bottomBar = {
@@ -53,6 +60,18 @@ fun MainApp() {
                     selected = currentRoute == "map",
                     onClick = {
                         navController.navigate("map") {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Filled.Bookmarks, contentDescription = "Sparade ställen") },
+                    label = { Text("Sparade ställen") },
+                    selected = currentRoute == "saved",
+                    onClick = {
+                        navController.navigate("saved") {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
@@ -80,7 +99,20 @@ fun MainApp() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable("map") {
-                MapScreen()
+                MapScreen(viewModel = sharedViewModel)
+            }
+            composable("saved") {
+                SavedSpotsScreen(
+                    savedSpotRepo = savedSpotRepo,
+                    onSelectSpotOnMap = { spot ->
+                        sharedViewModel.focusOnSpot(spot)
+                        navController.navigate("map") {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
             }
             composable("settings") {
                 SettingsScreen()

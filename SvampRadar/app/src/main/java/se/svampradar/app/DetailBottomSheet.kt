@@ -3,7 +3,6 @@ package se.svampradar.app
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,7 +13,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -72,8 +70,8 @@ fun DetailBottomSheet(
 
                 if (inspection != null) {
                     val scoreColor = when {
-                        inspection.score >= 70 -> Color(0xFFD32F2F) // Mörkröd
-                        inspection.score >= 40 -> Color(0xFFF57C00) // Orange
+                        inspection.score >= 70 -> Color(0xFFD32F2F)
+                        inspection.score >= 40 -> Color(0xFFF57C00)
                         else -> Color(0xFF757575)
                     }
                     Surface(
@@ -102,7 +100,7 @@ fun DetailBottomSheet(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "💡 Motivering & Analys",
+                            text = "Motivering och analys",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -115,11 +113,9 @@ fun DetailBottomSheet(
                         HorizontalDivider()
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Detalj-rader
-                        DetailRow(icon = "🌲", label = "Skogstyp", value = inspection.dominantSpecies)
-                        DetailRow(icon = "⏳", label = "Skogens ålder", value = "${inspection.age} år")
+                        DetailRow(label = "Skogstyp", value = inspection.dominantSpecies)
+                        DetailRow(label = "Skogens ålder", value = "${inspection.age} år")
                         DetailRow(
-                            icon = "💧",
                             label = "Markfuktighet",
                             value = when (inspection.moistureClass) {
                                 1 -> "Torr–frisk mark (Klass 1)"
@@ -130,7 +126,6 @@ fun DetailBottomSheet(
                             }
                         )
                         DetailRow(
-                            icon = "📊",
                             label = "Trädvolym",
                             value = "${inspection.totalVol} m³/ha (Gran: ${inspection.granVol}, Tall: ${inspection.tallVol}, Löv: ${inspection.lovVol})"
                         )
@@ -142,7 +137,7 @@ fun DetailBottomSheet(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Text(
-                        text = "Ingen skogsdata tillgänglig för denna koordinat (ligger utanför kommunens kartområde).",
+                        text = "Ingen skogsdata tillgänglig för denna koordinat.",
                         modifier = Modifier.padding(16.dp),
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -151,12 +146,11 @@ fun DetailBottomSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // ACTION BUTTONS: Navigera, Dela, Spara
+            // ACTION BUTTONS
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // 1. NAVIGERA
                 Button(
                     onClick = {
                         val lat = location.latitude
@@ -168,7 +162,6 @@ fun DetailBottomSheet(
                         try {
                             context.startActivity(mapIntent)
                         } catch (e: Exception) {
-                            // Fallback till webbläsare eller valfri kartapp
                             val fallbackUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$lat,$lon")
                             context.startActivity(Intent(Intent.ACTION_VIEW, fallbackUri))
                         }
@@ -176,23 +169,22 @@ fun DetailBottomSheet(
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(Icons.Filled.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Navigation, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Navigera")
                 }
 
-                // 2. DELA
                 OutlinedButton(
                     onClick = {
                         val lat = location.latitude
                         val lon = location.longitude
-                        val shareText = "🌲 Kolla in det här stället i skogen!\nhttps://maps.google.com/?q=$lat,$lon"
+                        val shareText = "Kolla in den här platsen i skogen:\nhttps://maps.google.com/?q=$lat,$lon"
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_SUBJECT, "SvampRadar Plats")
                             putExtra(Intent.EXTRA_TEXT, shareText)
                         }
-                        context.startActivity(Intent.createChooser(shareIntent, "Dela plats via..."))
+                        context.startActivity(Intent.createChooser(shareIntent, "Dela plats via"))
                     },
                     modifier = Modifier.weight(1f)
                 ) {
@@ -204,13 +196,17 @@ fun DetailBottomSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 3. SPARA FYND
             Button(
                 onClick = { showSaveDialog = true },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
             ) {
-                Text("🍄 Spara svampfynd här", fontWeight = FontWeight.Bold)
+                Icon(Icons.Filled.BookmarkAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Spara plats", fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -224,7 +220,7 @@ fun DetailBottomSheet(
             onSave = { spot ->
                 coroutineScope.launch {
                     savedSpotRepo.addSpot(spot)
-                    Toast.makeText(context, "Svampställe sparat! 🍄", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Platsen har sparats", Toast.LENGTH_SHORT).show()
                     showSaveDialog = false
                 }
             }
@@ -233,14 +229,13 @@ fun DetailBottomSheet(
 }
 
 @Composable
-private fun DetailRow(icon: String, label: String, value: String) {
+private fun DetailRow(label: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
-        Text(icon, modifier = Modifier.width(24.dp))
         Column {
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
@@ -264,7 +259,7 @@ fun SaveSpotDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Spara svampfynd 🍄") },
+        title = { Text("Spara plats") },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
