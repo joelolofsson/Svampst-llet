@@ -47,10 +47,17 @@ def run_cmd(cmd):
     if res.stdout: print(res.stdout.strip())
     if res.stderr: print(res.stderr.strip())
 
-# 1. Klipp ut staden från GeoJSON
+# 1. Klipp ut staden/städerna från GeoJSON
 print(f"1. Extraherar {city_name} från {geojson_src}...")
+
+if "," in city_name:
+    cities = [c.strip() for c in city_name.split(",")]
+    where_clause = " OR ".join([f"kom_namn = '{c}'" for c in cities])
+else:
+    where_clause = f"kom_namn = '{city_name}'"
+
 if os.path.exists(city_wgs84): os.remove(city_wgs84)
-run_cmd(f'ogr2ogr -f GeoJSON -where "kom_namn = \'{city_name}\'" {city_wgs84} {geojson_src}')
+run_cmd(f'ogr2ogr -f GeoJSON -where "{where_clause}" {city_wgs84} {geojson_src}')
 
 if os.path.exists(city_sweref): os.remove(city_sweref)
 run_cmd(f'ogr2ogr -f GeoJSON -t_srs EPSG:3006 {city_sweref} {city_wgs84}')
