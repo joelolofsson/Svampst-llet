@@ -102,16 +102,15 @@ nmd = nmd_ds.GetRasterBand(1).ReadAsArray()
 total_vol = gran + tall + lov
 barr_vol = gran + tall
 
-# NMD Mask: 50-59 är Bebyggelse/Infrastruktur, 60-69 är Vatten. 
-# Vi nollställer volym på all urban/vatten-yta!
-urban_or_water = (nmd >= 50) & (nmd <= 69)
-total_vol[urban_or_water] = 0
-gran[urban_or_water] = 0
-tall[urban_or_water] = 0
-lov[urban_or_water] = 0
-barr_vol[urban_or_water] = 0
+# NMD Mask: 50-59 är Bebyggelse/Infrastruktur, 60-69 är Vatten, 3 är Åkermark, 4000-4999 är Öppen mark/gräs.
+non_forest_mask = ((nmd >= 50) & (nmd <= 69)) | (nmd == 3) | ((nmd >= 4000) & (nmd < 5000))
+total_vol[non_forest_mask] = 0
+gran[non_forest_mask] = 0
+tall[non_forest_mask] = 0
+lov[non_forest_mask] = 0
+barr_vol[non_forest_mask] = 0
 
-# Syntetisera ålder och fukt (nu renons från villaträdgårdar!)
+# Syntetisera ålder och fukt
 age = np.zeros_like(total_vol, dtype=np.uint8)
 age[(total_vol > 0) & (total_vol < 10)] = 5
 age[(total_vol >= 10) & (total_vol < 35)] = 15
@@ -127,15 +126,17 @@ skogstyp = np.zeros_like(gran, dtype=np.uint8)
 cond_hygge = ((age > 0) & (age < 25)) | ((total_vol >= 5) & (total_vol < 35))
 skogstyp[cond_hygge] = 1
 
-cond_skog = (total_vol >= 35) & (~cond_hygge)
-p_gran = np.where(total_vol > 0, gran / total_vol, 0)
-p_tall = np.where(total_vol > 0, tall / total_vol, 0)
-p_lov = np.where(total_vol > 0, lov / total_vol, 0)
+cond_skog = (total_vol >= 35) & (~cond_hygge) & (~non_forest_mask)
+with np.errstate(divide='ignore', invalid='ignore'):
+    p_gran = np.where(total_vol > 0, gran / total_vol, 0)
+    p_tall = np.where(total_vol > 0, tall / total_vol, 0)
+    p_lov = np.where(total_vol > 0, lov / total_vol, 0)
 
 skogstyp[cond_skog & (p_gran >= 0.45)] = 2
 skogstyp[cond_skog & (p_tall >= 0.45) & (p_tall > p_gran)] = 3
 skogstyp[cond_skog & (p_lov >= 0.45) & (p_lov > p_gran) & (p_lov > p_tall)] = 4
 skogstyp[cond_skog & (skogstyp == 0)] = 5
+skogstyp[non_forest_mask] = 0
 
 def save_tif(filename, array, dtype=gdal.GDT_Byte, no_data=0):
     drv = gdal.GetDriverByName("GTiff")
@@ -149,28 +150,42 @@ def save_tif(filename, array, dtype=gdal.GDT_Byte, no_data=0):
 
 save_tif(f"skogstyp_{flavor_name}_raw.tif", skogstyp)
 
-# 5. Hotspots
-print("5. Beräknar hotspots...")
+# 5. Hotspots (Strikt ekologiska kriterier för Trattkantarell)
+print("5. Beräknar hotspots med strikt ekologisk barrkrav och NMD-habitatvalidering...")
 cond_vol = (total_vol >= 150) & (total_vol <= 600)
-cond_barr = barr_vol >= 70
+
+# Trattkantarell lever i obligat mykorrhiza med barrträd (främst gran, även tall).
+# Kräver både absolut barrvolym (minst 80 m3/ha) OCH dominans av barrträd (minst 55% av krontaket)
+with np.errstate(divide='ignore', invalid='ignore'):
+    barr_ratio = np.where(total_vol > 0, barr_vol / total_vol, 0)
+cond_barr = (barr_vol >= 80) & (barr_ratio >= 0.55)
+
+# Endast NMD-klasser som faktiskt är barrskog / barrblandskog tillåts:
+# 111: Tall fastmark, 112: Gran fastmark, 113: Barrbland fastmark, 114: Lövblandad barr fastmark
+# 121: Tall våtmark, 122: Gran våtmark, 123: Barrbland våtmark, 124: Lövblandad barr våtmark
+# Utesluter 115-117 (löv/ädellöv), parker, gräsmarker, åker och bebyggelse!
+nmd_valid_conifer = np.isin(nmd, [111, 112, 113, 114, 121, 122, 123, 124])
+
 cond_alder = age >= 50
 cond_fukt = (fukt == 2) | (fukt == 3)
 
-valid = cond_vol & cond_barr & cond_alder & cond_fukt
+valid = cond_vol & cond_barr & cond_alder & cond_fukt & nmd_valid_conifer
 
+# Silfilter: Kräv sammanhängande skogsbestånd om minst 50 pixlar (0.5 hektar = 5000 m2)
+# Tar bort fragmenterade trädgrupper i tätortsmiljö
 mem_drv = gdal.GetDriverByName('MEM')
 tmp_ds = mem_drv.Create('', cols, rows, 1, gdal.GDT_Byte)
 tmp_ds.GetRasterBand(1).WriteArray(valid.astype(np.uint8))
 sieve_ds = mem_drv.Create('', cols, rows, 1, gdal.GDT_Byte)
 
-gdal.SieveFilter(tmp_ds.GetRasterBand(1), None, sieve_ds.GetRasterBand(1), 20, 8)
+gdal.SieveFilter(tmp_ds.GetRasterBand(1), None, sieve_ds.GetRasterBand(1), 50, 8)
 valid_filtered = sieve_ds.GetRasterBand(1).ReadAsArray() > 0
 
 hotspot = np.zeros_like(gran, dtype=np.float32)
 hotspot[valid_filtered] = 0.4
-hotspot[valid_filtered & (gran >= 100)] += 0.2
-hotspot[valid_filtered & (fukt == 2)] += 0.2
-hotspot[valid_filtered & (age >= 70)] += 0.2
+hotspot[valid_filtered & (gran >= 80)] += 0.2
+hotspot[valid_filtered & (gran >= 140)] += 0.2
+hotspot[valid_filtered & (age >= 65)] += 0.2
 
 save_tif(f"hotspot_{flavor_name}_raw.tif", hotspot, gdal.GDT_Float32)
 
