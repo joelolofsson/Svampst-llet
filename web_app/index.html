@@ -2,70 +2,126 @@
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>SvampRadar - Web Edition</title>
+    <title>Svampstället - Web Edition</title>
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
     <script src="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.css" rel="stylesheet" />
     <style>
-        body { margin: 0; padding: 0; font-family: 'Open Sans', sans-serif; background-color: #111; }
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #111; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
         
         #menu { 
             position: absolute; 
             background: rgba(255, 255, 255, 0.95); 
-            padding: 15px; 
-            top: 15px; 
-            left: 15px; 
-            border-radius: 8px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3); 
-            z-index: 1; 
-            backdrop-filter: blur(5px);
+            padding: 14px 16px; 
+            top: 14px; 
+            left: 14px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 16px rgba(0,0,0,0.25); 
+            z-index: 2; 
+            backdrop-filter: blur(8px);
+            max-width: 280px;
         }
         
-        h3 { margin-top: 0; margin-bottom: 10px; color: #333; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; }
+        h3 { margin-top: 0; margin-bottom: 8px; color: #222; font-size: 14px; text-transform: uppercase; letter-spacing: 0.8px; }
         
+        .city-select {
+            width: 100%;
+            padding: 8px 10px;
+            margin-bottom: 12px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            background: #fff;
+            color: #333;
+            outline: none;
+            cursor: pointer;
+        }
+
         .layer-control {
             display: flex;
             align-items: center;
             margin-bottom: 8px;
             cursor: pointer;
+            user-select: none;
         }
         
-        .layer-control input { margin-right: 8px; cursor: pointer; }
-        .layer-control span { font-size: 14px; color: #444; }
+        .layer-control input { margin-right: 10px; cursor: pointer; transform: scale(1.1); }
+        .layer-control span { font-size: 13.5px; color: #333; font-weight: 500; }
         
         .header-logo {
             position: absolute;
-            top: 15px;
-            right: 15px;
-            background: rgba(30, 30, 30, 0.8);
+            top: 14px;
+            right: 14px;
+            background: rgba(20, 20, 20, 0.85);
             color: #fff;
             padding: 8px 16px;
             border-radius: 30px;
-            font-weight: bold;
-            z-index: 1;
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 2;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
         }
+
+        .legend {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid #eee;
+            font-size: 12px;
+            color: #555;
+        }
+        .legend-item { display: flex; align-items: center; margin-bottom: 4px; }
+        .legend-color { width: 14px; height: 14px; border-radius: 3px; margin-right: 8px; }
     </style>
 </head>
 <body>
-    <div class="header-logo">🍄 SvampRadar Web</div>
+    <div class="header-logo">🍄 Svampstället Web</div>
     
     <div id="menu">
+        <h3>Välj område</h3>
+        <select id="city-selector" class="city-select">
+            <option value="goteborg">Göteborg</option>
+            <option value="aleLillaEdet">Ale & Lilla Edet</option>
+            <option value="lidkoping">Lidköping</option>
+            <option value="mark">Marks kommun</option>
+            <option value="overview">Översikt (Alla 5)</option>
+        </select>
+
         <h3>Kartlager</h3>
-        <label class="layer-control">
-            <input type="checkbox" id="skogstyp" checked>
-            <span>Skogstyper (Gran, Tall, Löv)</span>
-        </label>
         <label class="layer-control">
             <input type="checkbox" id="hotspot" checked>
             <span>🔥 Trattkantarell Hotspots</span>
         </label>
+        <label class="layer-control">
+            <input type="checkbox" id="skogstyp" checked>
+            <span>🌲 Skogstyper (Gran/Tall/Löv)</span>
+        </label>
+        <label class="layer-control">
+            <input type="checkbox" id="markfuktighet">
+            <span>💧 Markfuktighet (DTW)</span>
+        </label>
+
+        <div class="legend">
+            <div class="legend-item"><span class="legend-color" style="background:#228B22;"></span> Mörkgrön = Gran</div>
+            <div class="legend-item"><span class="legend-color" style="background:#EB7319;"></span> Orange = Tall</div>
+            <div class="legend-item"><span class="legend-color" style="background:#7DC31E;"></span> Ljusgrön = Löv</div>
+            <div class="legend-item"><span class="legend-color" style="background:#C80000;"></span> Röd = 100p Hotspot</div>
+        </div>
     </div>
     
     <div id="map"></div>
     
     <script>
-        // Initiera MapLibre
+        const cityCoordinates = {
+            'goteborg': { center: [11.9746, 57.7089], zoom: 11.5 },
+            'aleLillaEdet': { center: [12.1800, 58.0000], zoom: 10.5 },
+            'lidkoping': { center: [13.1600, 58.5000], zoom: 11.0 },
+            'mark': { center: [12.6600, 57.4800], zoom: 10.5 },
+            'overview': { center: [12.5000, 58.0000], zoom: 8.5 }
+        };
+
         var map = new maplibregl.Map({
             container: 'map',
             style: {
@@ -79,7 +135,6 @@
                     },
                     'skogstyp_src': {
                         'type': 'raster',
-                        // Pekar mot vår Python-backend (/tiles/lager_namn/z/x/y.png)
                         'tiles': [window.location.origin + '/tiles/skogstyp/{z}/{x}/{y}.png'],
                         'tileSize': 256,
                         'minzoom': 0,
@@ -88,6 +143,13 @@
                     'hotspot_src': {
                         'type': 'raster',
                         'tiles': [window.location.origin + '/tiles/hotspot_trattkantarell/{z}/{x}/{y}.png'],
+                        'tileSize': 256,
+                        'minzoom': 0,
+                        'maxzoom': 16
+                    },
+                    'fukt_src': {
+                        'type': 'raster',
+                        'tiles': [window.location.origin + '/tiles/markfuktighet/{z}/{x}/{y}.png'],
                         'tileSize': 256,
                         'minzoom': 0,
                         'maxzoom': 16
@@ -102,10 +164,17 @@
                         'maxzoom': 19
                     },
                     {
+                        'id': 'fukt-layer',
+                        'type': 'raster',
+                        'source': 'fukt_src',
+                        'layout': { 'visibility': 'none' },
+                        'paint': { 'raster-opacity': 0.7 }
+                    },
+                    {
                         'id': 'skogstyp-layer',
                         'type': 'raster',
                         'source': 'skogstyp_src',
-                        'paint': { 'raster-opacity': 0.6 } // Lite genomskinligt så man ser vägarna under
+                        'paint': { 'raster-opacity': 0.6 }
                     },
                     {
                         'id': 'hotspot-layer',
@@ -115,20 +184,38 @@
                     }
                 ]
             },
-            center: [11.9746, 57.7089], // Startar i Göteborg
-            zoom: 11
+            center: cityCoordinates['goteborg'].center,
+            zoom: cityCoordinates['goteborg'].zoom
         });
 
-        // Kontroller för att tända/släcka lager
+        // City Selector change listener
+        document.getElementById('city-selector').addEventListener('change', (e) => {
+            const dest = cityCoordinates[e.target.value];
+            if (dest) {
+                map.flyTo({ center: dest.center, zoom: dest.zoom, essential: true });
+            }
+        });
+
+        // Layer toggles
         document.getElementById('skogstyp').addEventListener('change', (e) => {
             map.setLayoutProperty('skogstyp-layer', 'visibility', e.target.checked ? 'visible' : 'none');
         });
         document.getElementById('hotspot').addEventListener('change', (e) => {
             map.setLayoutProperty('hotspot-layer', 'visibility', e.target.checked ? 'visible' : 'none');
         });
+        document.getElementById('markfuktighet').addEventListener('change', (e) => {
+            map.setLayoutProperty('fukt-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+        });
         
-        // Navigation controls (Zoom in/out)
+        // Navigation controls
         map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+
+        // GPS Geolocate control (Shows user position on mobile phone)
+        map.addControl(new maplibregl.GeolocateControl({
+            positionOptions: { enableHighAccuracy: true },
+            trackUserLocation: true,
+            showUserHeading: true
+        }), 'bottom-right');
     </script>
 </body>
 </html>
