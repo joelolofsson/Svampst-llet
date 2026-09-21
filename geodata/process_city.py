@@ -33,6 +33,8 @@ vol_files = {
     "lov": "LovVol_leaf.tif"
 }
 
+dtw_src = "SLUMarkfuktighetKlassad.tif"
+
 if not os.path.exists(nmd_src):
     print(f"FEL: Saknar {nmd_src}. Vänligen kör download_nmd.py först.")
     sys.exit(1)
@@ -85,6 +87,12 @@ ymin = ymax + rows * gt[5]
 
 if not os.path.exists(nmd_city):
     run_cmd(f"gdalwarp -te {xmin} {ymin} {xmax} {ymax} -ts {cols} {rows} -r near {nmd_src} {nmd_city}")
+
+# 3b. Klipp äkta SLU DTW-markfuktighet om den finns
+fukt_city = f"markfuktighet_{flavor_name}.tif"
+if os.path.exists(dtw_src) and not os.path.exists(fukt_city):
+    print(f"3b. Klipper äkta SLU DTW-markfuktighet för {city_name}...")
+    run_cmd(f"gdalwarp -te {xmin} {ymin} {xmax} {ymax} -ts {cols} {rows} -r near {dtw_src} {fukt_city}")
 
 # 4. Läs in arrayer och maska
 print("4. Beräknar ålder, fukt och skogstyp (med NMD-mask)...")
@@ -232,6 +240,14 @@ if os.path.exists(f"hotspot_{flavor_name}.mbtiles"): os.remove(f"hotspot_{flavor
 run_cmd(f"gdal_translate -of MBTILES -co TILE_FORMAT=PNG hotspot_{flavor_name}_colored.tif hotspot_{flavor_name}.mbtiles")
 run_cmd(f"gdaladdo -r nearest hotspot_{flavor_name}.mbtiles 2 4 8 16")
 
+if has_real_fukt:
+    print(f"Skapar markfuktighet_{flavor_name}.mbtiles...")
+    run_cmd(f"gdalwarp -overwrite -t_srs EPSG:3857 -r near {real_fukt_file} markfuktighet_{flavor_name}_3857.tif")
+    run_cmd(f"gdaldem color-relief markfuktighet_{flavor_name}_3857.tif color_fukt.txt markfuktighet_{flavor_name}_colored.tif -alpha")
+    if os.path.exists(f"markfuktighet_{flavor_name}.mbtiles"): os.remove(f"markfuktighet_{flavor_name}.mbtiles")
+    run_cmd(f"gdal_translate -of MBTILES -co TILE_FORMAT=PNG markfuktighet_{flavor_name}_colored.tif markfuktighet_{flavor_name}.mbtiles")
+    run_cmd(f"gdaladdo -r nearest markfuktighet_{flavor_name}.mbtiles 2 4 8 16")
+
 # 7. Inspektionsdata (forest_inspection.bin)
 print("7. Skapar forest_inspection.bin...")
 ref_3857 = gdal.Open(f"hotspot_{flavor_name}_3857.tif")
@@ -287,6 +303,8 @@ app_dir = f"../SvampRadar/app/src/{flavor_name}/assets"
 if os.path.exists(app_dir):
     run_cmd(f"cp skogstyp_{flavor_name}.mbtiles {app_dir}/skogstyp.mbtiles")
     run_cmd(f"cp hotspot_{flavor_name}.mbtiles {app_dir}/hotspot_trattkantarell.mbtiles")
+    if has_real_fukt and os.path.exists(f"markfuktighet_{flavor_name}.mbtiles"):
+        run_cmd(f"cp markfuktighet_{flavor_name}.mbtiles {app_dir}/markfuktighet.mbtiles")
     run_cmd(f"cp {bin_file} {app_dir}/forest_inspection.bin")
     print(f"Kopierade filer till {app_dir}/")
 else:
