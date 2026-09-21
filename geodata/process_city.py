@@ -110,16 +110,47 @@ tall[non_forest_mask] = 0
 lov[non_forest_mask] = 0
 barr_vol[non_forest_mask] = 0
 
-# Syntetisera ålder och fukt
-age = np.zeros_like(total_vol, dtype=np.uint8)
-age[(total_vol > 0) & (total_vol < 10)] = 5
-age[(total_vol >= 10) & (total_vol < 35)] = 15
-age[(total_vol >= 35) & (total_vol < 80)] = 40
-age[(total_vol >= 80) & (total_vol < 150)] = 65
-c_ge = total_vol >= 150
-age[c_ge] = np.minimum(95, 65 + ((total_vol[c_ge] - 150) // 10)).astype(np.uint8)
+# Kontrollera om det finns äkta SLU markfuktighet (DTW) och ålderskarta
+real_fukt_file = None
+real_alder_files = None
 
-fukt = np.where(total_vol >= 20, 2, np.where(total_vol > 0, 1, 0)).astype(np.uint8)
+if flavor_name == "aleLillaEdet" and os.path.exists("markfuktighet_clipped.tif"):
+    real_fukt_file = "markfuktighet_clipped.tif"
+elif os.path.exists(f"markfuktighet_{flavor_name}.tif"):
+    real_fukt_file = f"markfuktighet_{flavor_name}.tif"
+
+if flavor_name == "aleLillaEdet" and os.path.exists("alder_gran_clipped.tif") and os.path.exists("alder_blandskog_clipped.tif"):
+    real_alder_files = ("alder_gran_clipped.tif", "alder_blandskog_clipped.tif")
+
+has_real_fukt = real_fukt_file is not None
+has_real_alder = real_alder_files is not None
+
+if has_real_fukt:
+    print(f"-> Använder ÄKTA SLU DTW markfuktighet från {real_fukt_file}!")
+    ds_fukt = gdal.Open(real_fukt_file)
+    fukt = ds_fukt.GetRasterBand(1).ReadAsArray().astype(np.uint8)
+else:
+    print("-> Ingen lokal DTW-markfuktighet hittad, använder volym-proxy för fukt.")
+    fukt = np.where(total_vol >= 20, 2, np.where(total_vol > 0, 1, 0)).astype(np.uint8)
+
+if has_real_alder:
+    print(f"-> Använder ÄKTA SLU ålderskartor från {real_alder_files}!")
+    ds_ag = gdal.Open(real_alder_files[0])
+    ds_ab = gdal.Open(real_alder_files[1])
+    ag = ds_ag.GetRasterBand(1).ReadAsArray()
+    ab = ds_ab.GetRasterBand(1).ReadAsArray()
+    ag = np.where(ag > 250, 0, ag)
+    ab = np.where(ab > 250, 0, ab)
+    age = np.maximum(ag, ab).astype(np.uint8)
+else:
+    print("-> Inga lokala ålderskartor hittade, använder volym-proxy för ålder.")
+    age = np.zeros_like(total_vol, dtype=np.uint8)
+    age[(total_vol > 0) & (total_vol < 10)] = 5
+    age[(total_vol >= 10) & (total_vol < 35)] = 15
+    age[(total_vol >= 35) & (total_vol < 80)] = 40
+    age[(total_vol >= 80) & (total_vol < 150)] = 65
+    c_ge = total_vol >= 150
+    age[c_ge] = np.minimum(95, 65 + ((total_vol[c_ge] - 150) // 10)).astype(np.uint8)
 
 # Skogstyp
 skogstyp = np.zeros_like(gran, dtype=np.uint8)
@@ -154,16 +185,11 @@ save_tif(f"skogstyp_{flavor_name}_raw.tif", skogstyp)
 print("5. Beräknar hotspots med strikt ekologisk barrkrav och NMD-habitatvalidering...")
 cond_vol = (total_vol >= 150) & (total_vol <= 600)
 
-# Trattkantarell lever i obligat mykorrhiza med barrträd (främst gran, även tall).
-# Kräver både absolut barrvolym (minst 80 m3/ha) OCH dominans av barrträd (minst 55% av krontaket)
 with np.errstate(divide='ignore', invalid='ignore'):
     barr_ratio = np.where(total_vol > 0, barr_vol / total_vol, 0)
-cond_barr = (barr_vol >= 80) & (barr_ratio >= 0.55)
+cond_barr = (barr_vol >= (70 if has_real_fukt else 80)) & (barr_ratio >= 0.50 if has_real_fukt else 0.55)
 
-# Endast NMD-klasser som faktiskt är barrskog / barrblandskog tillåts:
-# 111: Tall fastmark, 112: Gran fastmark, 113: Barrbland fastmark, 114: Lövblandad barr fastmark
-# 121: Tall våtmark, 122: Gran våtmark, 123: Barrbland våtmark, 124: Lövblandad barr våtmark
-# Utesluter 115-117 (löv/ädellöv), parker, gräsmarker, åker och bebyggelse!
+# Endast NMD-klasser som faktiskt är barrskog / barrblandskog tillåts
 nmd_valid_conifer = np.isin(nmd, [111, 112, 113, 114, 121, 122, 123, 124])
 
 cond_alder = age >= 50
@@ -171,21 +197,24 @@ cond_fukt = (fukt == 2) | (fukt == 3)
 
 valid = cond_vol & cond_barr & cond_alder & cond_fukt & nmd_valid_conifer
 
-# Silfilter: Kräv sammanhängande skogsbestånd om minst 50 pixlar (0.5 hektar = 5000 m2)
-# Tar bort fragmenterade trädgrupper i tätortsmiljö
+# Silfilter: 20 pixlar om äkta DTW används (fuktstråk är smala meandrar), annars 50 pixlar för syntetiserade
+sieve_size = 20 if has_real_fukt else 50
 mem_drv = gdal.GetDriverByName('MEM')
 tmp_ds = mem_drv.Create('', cols, rows, 1, gdal.GDT_Byte)
 tmp_ds.GetRasterBand(1).WriteArray(valid.astype(np.uint8))
 sieve_ds = mem_drv.Create('', cols, rows, 1, gdal.GDT_Byte)
 
-gdal.SieveFilter(tmp_ds.GetRasterBand(1), None, sieve_ds.GetRasterBand(1), 50, 8)
+gdal.SieveFilter(tmp_ds.GetRasterBand(1), None, sieve_ds.GetRasterBand(1), sieve_size, 8)
 valid_filtered = sieve_ds.GetRasterBand(1).ReadAsArray() > 0
 
 hotspot = np.zeros_like(gran, dtype=np.float32)
 hotspot[valid_filtered] = 0.4
-hotspot[valid_filtered & (gran >= 80)] += 0.2
-hotspot[valid_filtered & (gran >= 140)] += 0.2
-hotspot[valid_filtered & (age >= 65)] += 0.2
+hotspot[valid_filtered & (gran >= (100 if has_real_fukt else 80))] += 0.2
+if has_real_fukt:
+    hotspot[valid_filtered & (fukt == 2)] += 0.2  # Perfekt fukt-bonus
+else:
+    hotspot[valid_filtered & (gran >= 140)] += 0.2
+hotspot[valid_filtered & (age >= (70 if has_real_alder else 65))] += 0.2
 
 save_tif(f"hotspot_{flavor_name}_raw.tif", hotspot, gdal.GDT_Float32)
 
@@ -237,17 +266,12 @@ t_v = g_g.astype(int) + t_g.astype(int) + l_g.astype(int)
 # For simplicity, we just use the masked arrays directly? Resampling from TIFF is easier.
 # Let's save a temp masked total volume for accurate grid data.
 save_tif(f"tmp_tot_{flavor_name}.tif", total_vol)
+save_tif(f"tmp_age_{flavor_name}.tif", age)
+save_tif(f"tmp_fukt_{flavor_name}.tif", fukt)
+
 t_v = np.clip(resample_to_grid(f"tmp_tot_{flavor_name}.tif"), 0, 255).astype(int)
-
-a_g = np.zeros_like(t_v, dtype=np.uint8)
-a_g[(t_v > 0) & (t_v < 10)] = 5
-a_g[(t_v >= 10) & (t_v < 35)] = 15
-a_g[(t_v >= 35) & (t_v < 80)] = 40
-a_g[(t_v >= 80) & (t_v < 150)] = 65
-cg = t_v >= 150
-a_g[cg] = np.minimum(95, 65 + ((t_v[cg] - 150) // 10)).astype(np.uint8)
-
-f_g = np.where(t_v >= 20, 2, np.where(t_v > 0, 1, 0)).astype(np.uint8)
+a_g = np.clip(resample_to_grid(f"tmp_age_{flavor_name}.tif"), 0, 255).astype(np.uint8)
+f_g = np.clip(resample_to_grid(f"tmp_fukt_{flavor_name}.tif"), 0, 255).astype(np.uint8)
 s_g = np.clip(resample_to_grid(f"hotspot_{flavor_name}_3857.tif") * 100, 0, 100).astype(np.uint8)
 
 header = struct.pack(">4si2d2i2d", b"SVMP", 1, x_min_bin, y_max_bin, cols_bin, rows_bin, cell_x, cell_y)
