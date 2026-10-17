@@ -1,313 +1,541 @@
 #!/usr/bin/env python3
 """
-Generalized Geodata processing script for ANY city.
-Usage: python process_city.py <CityName> <FlavorName>
-Example: python process_city.py Göteborg goteborg
+Enhetlig, deterministisk geodata-pipeline för SvampRadar (inga kommunspecifika undantag).
+
+Datakällor (samtliga nationella och officiella):
+1. SCB / Lantmäteriet: kommuner.geojson (kommungränser)
+2. Naturvårdsverket: NMD2023bas_v2_1.tif (Nationella Marktäckedata 2023, 10m)
+3. SLU Skogskarta: GranVol_leaf.tif, TallVol_leaf.tif, LovVol_leaf.tif (Trädvolym m³sk/ha, 12.5m)
+4. SLU DTW: SLUMarkfuktighetKlassad.tif (Markfuktighet klass 1-4, 2m -> 12.5m)
+5. SLU / Skogsstyrelsen SGD2: Beståndsmedelsålder 2025 (gran, tall, björk, blandskog, 10m -> 12.5m)
+
+Användning:
+  python process_city.py <KommunNamn> <FlavorName>
+  python process_city.py --all
 """
 
 import os
 import sys
-import subprocess
+import shutil
 import struct
+import subprocess
 import numpy as np
-from osgeo import gdal, ogr, osr
+from osgeo import gdal
 
 gdal.UseExceptions()
 
-if len(sys.argv) < 3:
-    print("Usage: python process_city.py <CityName> <FlavorName>")
-    print("Example: python process_city.py Göteborg goteborg")
-    sys.exit(1)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(SCRIPT_DIR)
 
-city_name = sys.argv[1]
-flavor_name = sys.argv[2]
-
-print(f"--- Startar process_city.py för {city_name} (Flavor: {flavor_name}) ---")
-
-# Files
-geojson_src = "kommuner.geojson"
-nmd_src = "NMD2023_basskikt_v2_1/NMD2023bas_v2_1.tif"
-vol_files = {
+GEOJSON_SRC = "kommuner.geojson"
+NMD_SRC = "NMD2023_basskikt_v2_1/NMD2023bas_v2_1.tif"
+DTW_SRC = "SLUMarkfuktighetKlassad.tif"
+VOL_SOURCES = {
     "gran": "GranVol_leaf.tif",
     "tall": "TallVol_leaf.tif",
-    "lov": "LovVol_leaf.tif"
+    "lov": "LovVol_leaf.tif",
 }
+SLU_AGE_BASE_URL = "/vsicurl/https://gis.slu.se/data/slu_skogliga_grunddata/SGD2/data/alder/data"
+AGE_KINDS = ["gran", "tall", "bjork", "blandskog"]
 
-dtw_src = "SLUMarkfuktighetKlassad.tif"
+ALL_CITIES = [
+    ("Ale,Lilla Edet", "aleLillaEdet"),
+    ("Göteborg", "goteborg"),
+    ("Lidköping", "lidkoping"),
+    ("Mark", "mark"),
+]
 
-if not os.path.exists(nmd_src):
-    print(f"FEL: Saknar {nmd_src}. Vänligen kör download_nmd.py först.")
-    sys.exit(1)
-
-# Paths for outputs
-city_wgs84 = f"{flavor_name}_wgs84.geojson"
-city_sweref = f"{flavor_name}_sweref.geojson"
 
 def run_cmd(cmd):
-    print("Kör:", cmd)
+    print(f"  -> Kör: {cmd}")
     res = subprocess.run(cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if res.stdout: print(res.stdout.strip())
-    if res.stderr: print(res.stderr.strip())
+    if res.stderr:
+        for line in res.stderr.strip().splitlines():
+            if "Warning" not in line and "Copying raster attribute table" not in line:
+                print(f"     {line}")
 
-# 1. Klipp ut staden/städerna från GeoJSON
-print(f"1. Extraherar {city_name} från {geojson_src}...")
 
-if "," in city_name:
+def save_tif(filename, array, cols, rows, gt, proj, dtype=gdal.GDT_Byte, no_data=0):
+    drv = gdal.GetDriverByName("GTiff")
+    ds = drv.Create(filename, cols, rows, 1, dtype, options=["COMPRESS=LZW"])
+    ds.SetGeoTransform(gt)
+    ds.SetProjection(proj)
+    band = ds.GetRasterBand(1)
+    band.WriteArray(array)
+    if no_data is not None:
+        band.SetNoDataValue(no_data)
+    ds.FlushCache()
+    ds = None
+
+
+def create_mem_ds(array, cols, rows, gt, proj, dtype=gdal.GDT_Float32):
+    drv = gdal.GetDriverByName("MEM")
+    ds = drv.Create("", cols, rows, 1, dtype)
+    ds.SetGeoTransform(gt)
+    ds.SetProjection(proj)
+    ds.GetRasterBand(1).WriteArray(array)
+    return ds
+
+
+def matches_grid(filepath, cols, rows):
+    if not os.path.exists(filepath):
+        return False
+    try:
+        ds = gdal.Open(filepath)
+        return ds.RasterXSize == cols and ds.RasterYSize == rows
+    except Exception:
+        return False
+
+
+def process_city(city_name, flavor_name):
+    print(f"\n==================================================================")
+    print(f"Startar geodata-pipeline för {city_name} (flavor: {flavor_name})")
+    print(f"==================================================================")
+
+    for req in [GEOJSON_SRC, NMD_SRC, DTW_SRC] + list(VOL_SOURCES.values()):
+        if not os.path.exists(req):
+            raise FileNotFoundError(f"Saknar obligatorisk källfil: {req}")
+
+    # 1. Extrahera kommunpolygon i WGS84 och SWEREF 99 TM (EPSG:3006)
+    print("1. Extraherar kommungränser (WGS84 & SWEREF 99 TM)...")
+    city_wgs84 = f"{flavor_name}_wgs84.geojson"
+    city_sweref = f"{flavor_name}_sweref.geojson"
+
     cities = [c.strip() for c in city_name.split(",")]
     where_clause = " OR ".join([f"kom_namn = '{c}'" for c in cities])
-else:
-    where_clause = f"kom_namn = '{city_name}'"
 
-if os.path.exists(city_wgs84): os.remove(city_wgs84)
-run_cmd(f'ogr2ogr -f GeoJSON -where "{where_clause}" {city_wgs84} {geojson_src}')
+    if os.path.exists(city_wgs84):
+        os.remove(city_wgs84)
+    run_cmd(f'ogr2ogr -f GeoJSON -where "{where_clause}" {city_wgs84} {GEOJSON_SRC}')
 
-if os.path.exists(city_sweref): os.remove(city_sweref)
-run_cmd(f'ogr2ogr -f GeoJSON -t_srs EPSG:3006 {city_sweref} {city_wgs84}')
+    if os.path.exists(city_sweref):
+        os.remove(city_sweref)
+    run_cmd(f"ogr2ogr -f GeoJSON -t_srs EPSG:3006 {city_sweref} {city_wgs84}")
 
-# 2. Klipp volymrastren
-print("2. Klipper volymraster...")
-clipped_vols = {}
-for name, src_file in vol_files.items():
-    out_file = f"{name}Vol_{flavor_name}.tif"
-    if not os.path.exists(out_file):
-        run_cmd(f"gdalwarp -cutline {city_sweref} -crop_to_cutline -dstnodata 0 {src_file} {out_file}")
-    clipped_vols[name] = out_file
+    # 2. Klipp trädvolymraster med -dstnodata 65535 (bevarar äkta 0-volymer!)
+    print("2. Klipper SLU trädvolymraster (Gran, Tall, Löv) med NoData=65535...")
+    clipped_vols = {}
+    for name, src_file in VOL_SOURCES.items():
+        out_file = f"{name}Vol_{flavor_name}.tif"
+        if not os.path.exists(out_file):
+            run_cmd(
+                f"gdalwarp -overwrite -cutline {city_sweref} -crop_to_cutline "
+                f"-dstnodata 65535 {src_file} {out_file}"
+            )
+        clipped_vols[name] = out_file
 
-# 3. Klipp NMD2023 så den EXAKT matchar GranVol_city (samma grid/extent/upplösning)
-print("3. Klipper NMD2023-mask och anpassar grid...")
-nmd_city = f"nmd_{flavor_name}.tif"
-gran_ds = gdal.Open(clipped_vols["gran"])
-gt = gran_ds.GetGeoTransform()
-cols = gran_ds.RasterXSize
-rows = gran_ds.RasterYSize
-xmin = gt[0]
-ymax = gt[3]
-xmax = xmin + cols * gt[1]
-ymin = ymax + rows * gt[5]
+    gran_ds = gdal.Open(clipped_vols["gran"])
+    gt = gran_ds.GetGeoTransform()
+    proj = gran_ds.GetProjection()
+    cols = gran_ds.RasterXSize
+    rows = gran_ds.RasterYSize
+    xmin = gt[0]
+    ymax = gt[3]
+    xmax = xmin + cols * gt[1]
+    ymin = ymax + rows * gt[5]
 
-if not os.path.exists(nmd_city):
-    run_cmd(f"gdalwarp -te {xmin} {ymin} {xmax} {ymax} -ts {cols} {rows} -r near {nmd_src} {nmd_city}")
+    print(f"   Referensgrid (EPSG:3006): {cols}x{rows} pixlar, upplösning {gt[1]}m")
 
-# 3b. Klipp äkta SLU DTW-markfuktighet om den finns
-fukt_city = f"markfuktighet_{flavor_name}.tif"
-if os.path.exists(dtw_src) and not os.path.exists(fukt_city):
-    print(f"3b. Klipper äkta SLU DTW-markfuktighet för {city_name}...")
-    run_cmd(f"gdalwarp -te {xmin} {ymin} {xmax} {ymax} -ts {cols} {rows} -r near {dtw_src} {fukt_city}")
+    # 3a. Klipp NMD2023 till exakt samma grid
+    print("3a. Klipper NMD2023 markanvändning till exakt kommun-grid...")
+    nmd_city = f"nmd_{flavor_name}.tif"
+    if not matches_grid(nmd_city, cols, rows):
+        run_cmd(f"gdalwarp -overwrite -te {xmin} {ymin} {xmax} {ymax} -ts {cols} {rows} -r near {NMD_SRC} {nmd_city}")
 
-# 4. Läs in arrayer och maska
-print("4. Beräknar ålder, fukt och skogstyp (med NMD-mask)...")
-def load_band(filename):
-    ds = gdal.Open(filename)
-    arr = ds.GetRasterBand(1).ReadAsArray()
-    return np.where((arr < 0) | (arr == 65535), 0, arr).astype(np.float32)
+    # 3b. Klipp SLU DTW Markfuktighet till exakt samma grid
+    print("3b. Klipper SLU DTW Markfuktighetskarta till exakt kommun-grid...")
+    fukt_grid_file = f"markfuktighet_{flavor_name}_grid.tif"
+    if not matches_grid(fukt_grid_file, cols, rows):
+        run_cmd(f"gdalwarp -overwrite -te {xmin} {ymin} {xmax} {ymax} -ts {cols} {rows} -r near {DTW_SRC} {fukt_grid_file}")
 
-gran = load_band(clipped_vols["gran"])
-tall = load_band(clipped_vols["tall"])
-lov = load_band(clipped_vols["lov"])
-nmd_ds = gdal.Open(nmd_city)
-nmd = nmd_ds.GetRasterBand(1).ReadAsArray()
+    # 3c. Klipp SLU Beståndsmedelålder 2025 (gran, tall, björk, blandskog) till exakt samma grid
+    print("3c. Klipper SLU Beståndsmedelålder 2025 (gran, tall, björk, blandskog)...")
+    age_files = {}
+    for kind in AGE_KINDS:
+        out_age = f"alder_{kind}_{flavor_name}.tif"
+        if not matches_grid(out_age, cols, rows):
+            remote_tif = f"{SLU_AGE_BASE_URL}/Best%c3%a5ndsmedels%c3%a5lder_{kind}.tif"
+            run_cmd(f'gdalwarp -overwrite -te {xmin} {ymin} {xmax} {ymax} -ts {cols} {rows} -r near "{remote_tif}" {out_age}')
+        age_files[kind] = out_age
 
-total_vol = gran + tall + lov
-barr_vol = gran + tall
+    # 4. Läs in samtliga raster och beräkna maskade variabler
+    print("4. Läser in raster och tillämpar strikt NMD2023- och kommungränsmaskning...")
+    gran_raw = gran_ds.GetRasterBand(1).ReadAsArray()
+    tall_ds = gdal.Open(clipped_vols["tall"])
+    tall_raw = tall_ds.GetRasterBand(1).ReadAsArray()
+    lov_ds = gdal.Open(clipped_vols["lov"])
+    lov_raw = lov_ds.GetRasterBand(1).ReadAsArray()
 
-# NMD Mask: 50-59 är Bebyggelse/Infrastruktur, 60-69 är Vatten, 3 är Åkermark, 4000-4999 är Öppen mark/gräs.
-non_forest_mask = ((nmd >= 50) & (nmd <= 69)) | (nmd == 3) | ((nmd >= 4000) & (nmd < 5000))
-total_vol[non_forest_mask] = 0
-gran[non_forest_mask] = 0
-tall[non_forest_mask] = 0
-lov[non_forest_mask] = 0
-barr_vol[non_forest_mask] = 0
+    inside_mask = gran_raw != 65535
 
-# Kontrollera om det finns äkta SLU markfuktighet (DTW) och ålderskarta
-real_fukt_file = None
-real_alder_files = None
+    nmd_ds = gdal.Open(nmd_city)
+    nmd = nmd_ds.GetRasterBand(1).ReadAsArray()
 
-if flavor_name == "aleLillaEdet" and os.path.exists("markfuktighet_clipped.tif"):
-    real_fukt_file = "markfuktighet_clipped.tif"
-elif os.path.exists(f"markfuktighet_{flavor_name}.tif"):
-    real_fukt_file = f"markfuktighet_{flavor_name}.tif"
+    fukt_ds = gdal.Open(fukt_grid_file)
+    fukt_raw = fukt_ds.GetRasterBand(1).ReadAsArray()
 
-if flavor_name == "aleLillaEdet" and os.path.exists("alder_gran_clipped.tif") and os.path.exists("alder_blandskog_clipped.tif"):
-    real_alder_files = ("alder_gran_clipped.tif", "alder_blandskog_clipped.tif")
+    # NMD 2023 klasser:
+    # 111-118 = Skog på fastmark (118 = Temporärt ej skog / Kalhygge)
+    # 121-128 = Skog på våtmark (128 = Temporärt ej skog / Kalhygge)
+    # Alla övriga koder (3 åker, 51-54 bebyggelse/väg, 61-62 vatten, 200-228 öppen myr,
+    # 411 hällmark, 4211-4233 öppen gräs-/buskmark) är ICKE-SKOG.
+    nmd_forest = np.isin(
+        nmd,
+        [111, 112, 113, 114, 115, 116, 117, 118, 121, 122, 123, 124, 125, 126, 127, 128],
+    ) & inside_mask
+    nmd_hygge = np.isin(nmd, [118, 128]) & inside_mask
+    nmd_conifer = np.isin(nmd, [111, 112, 113, 114, 121, 122, 123, 124]) & inside_mask
 
-has_real_fukt = real_fukt_file is not None
-has_real_alder = real_alder_files is not None
+    gran = np.where(nmd_forest & (gran_raw >= 0) & (gran_raw != 65535), gran_raw, 0).astype(np.float32)
+    tall = np.where(nmd_forest & (tall_raw >= 0) & (tall_raw != 65535), tall_raw, 0).astype(np.float32)
+    lov = np.where(nmd_forest & (lov_raw >= 0) & (lov_raw != 65535), lov_raw, 0).astype(np.float32)
 
-if has_real_fukt:
-    print(f"-> Använder ÄKTA SLU DTW markfuktighet från {real_fukt_file}!")
-    ds_fukt = gdal.Open(real_fukt_file)
-    fukt = ds_fukt.GetRasterBand(1).ReadAsArray().astype(np.uint8)
-else:
-    print("-> Ingen lokal DTW-markfuktighet hittad, använder volym-proxy för fukt.")
-    fukt = np.where(total_vol >= 20, 2, np.where(total_vol > 0, 1, 0)).astype(np.uint8)
+    # På NMD 2023 kalhyggen (118/128) nollställs eventuell gammal volym från före avverkningen
+    gran[nmd_hygge] = np.minimum(gran[nmd_hygge], 10.0)
+    tall[nmd_hygge] = np.minimum(tall[nmd_hygge], 10.0)
+    lov[nmd_hygge] = np.minimum(lov[nmd_hygge], 10.0)
 
-if has_real_alder:
-    print(f"-> Använder ÄKTA SLU ålderskartor från {real_alder_files}!")
-    ds_ag = gdal.Open(real_alder_files[0])
-    ds_ab = gdal.Open(real_alder_files[1])
-    ag = ds_ag.GetRasterBand(1).ReadAsArray()
-    ab = ds_ab.GetRasterBand(1).ReadAsArray()
-    ag = np.where(ag > 250, 0, ag)
-    ab = np.where(ab > 250, 0, ab)
-    age = np.maximum(ag, ab).astype(np.uint8)
-else:
-    print("-> Inga lokala ålderskartor hittade, använder volym-proxy för ålder.")
-    age = np.zeros_like(total_vol, dtype=np.uint8)
-    age[(total_vol > 0) & (total_vol < 10)] = 5
-    age[(total_vol >= 10) & (total_vol < 35)] = 15
-    age[(total_vol >= 35) & (total_vol < 80)] = 40
-    age[(total_vol >= 80) & (total_vol < 150)] = 65
-    c_ge = total_vol >= 150
-    age[c_ge] = np.minimum(95, 65 + ((total_vol[c_ge] - 150) // 10)).astype(np.uint8)
+    total_vol = gran + tall + lov
+    barr_vol = gran + tall
 
-# Skogstyp
-skogstyp = np.zeros_like(gran, dtype=np.uint8)
-cond_hygge = ((age > 0) & (age < 25)) | ((total_vol >= 5) & (total_vol < 35))
-skogstyp[cond_hygge] = 1
+    with np.errstate(divide="ignore", invalid="ignore"):
+        p_gran = np.where(total_vol > 0, gran / total_vol, 0.0)
+        p_tall = np.where(total_vol > 0, tall / total_vol, 0.0)
+        p_lov = np.where(total_vol > 0, lov / total_vol, 0.0)
+        barr_ratio = np.where(total_vol > 0, barr_vol / total_vol, 0.0)
 
-cond_skog = (total_vol >= 35) & (~cond_hygge) & (~non_forest_mask)
-with np.errstate(divide='ignore', invalid='ignore'):
-    p_gran = np.where(total_vol > 0, gran / total_vol, 0)
-    p_tall = np.where(total_vol > 0, tall / total_vol, 0)
-    p_lov = np.where(total_vol > 0, lov / total_vol, 0)
+    # Läs in SLU 2025 Beståndsmedelålder enligt officiell produktbeskrivning (>= 65% trädslagsandel)
+    age_arrays = {}
+    for kind in AGE_KINDS:
+        ds_a = gdal.Open(age_files[kind])
+        arr_a = ds_a.GetRasterBand(1).ReadAsArray()
+        age_arrays[kind] = np.where((arr_a > 0) & (arr_a <= 250), arr_a, 0).astype(np.int16)
 
-skogstyp[cond_skog & (p_gran >= 0.45)] = 2
-skogstyp[cond_skog & (p_tall >= 0.45) & (p_tall > p_gran)] = 3
-skogstyp[cond_skog & (p_lov >= 0.45) & (p_lov > p_gran) & (p_lov > p_tall)] = 4
-skogstyp[cond_skog & (skogstyp == 0)] = 5
-skogstyp[non_forest_mask] = 0
+    age_selected = age_arrays["blandskog"].copy()
+    is_gran_dom = (p_gran >= 0.65) | ((total_vol == 0) & np.isin(nmd, [112, 122]))
+    is_tall_dom = (p_tall >= 0.65) | ((total_vol == 0) & np.isin(nmd, [111, 121]))
+    is_lov_dom = (p_lov >= 0.65) | ((total_vol == 0) & np.isin(nmd, [115, 116, 117, 125, 126, 127]))
 
-def save_tif(filename, array, dtype=gdal.GDT_Byte, no_data=0):
-    drv = gdal.GetDriverByName("GTiff")
-    ds = drv.Create(filename, cols, rows, 1, dtype)
-    ds.SetGeoTransform(gt)
-    ds.SetProjection(gran_ds.GetProjection())
-    b = ds.GetRasterBand(1)
-    b.WriteArray(array)
-    b.SetNoDataValue(no_data)
-    ds.FlushCache()
+    age_selected[is_gran_dom] = age_arrays["gran"][is_gran_dom]
+    age_selected[is_tall_dom] = age_arrays["tall"][is_tall_dom]
+    age_selected[is_lov_dom] = age_arrays["bjork"][is_lov_dom]
 
-save_tif(f"skogstyp_{flavor_name}_raw.tif", skogstyp)
+    # Fallback till max av giltiga 2025-åldrar om den valda skogstypens ålderskarta har NoData
+    age_max = np.maximum.reduce([age_arrays["gran"], age_arrays["tall"], age_arrays["bjork"], age_arrays["blandskog"]])
+    age_selected = np.where(age_selected > 0, age_selected, age_max)
 
-# 5. Hotspots (Strikt ekologiska kriterier för Trattkantarell)
-print("5. Beräknar hotspots med strikt ekologisk barrkrav och NMD-habitatvalidering...")
-cond_vol = (total_vol >= 150) & (total_vol <= 600)
+    age = np.zeros((rows, cols), dtype=np.uint8)
+    age[nmd_forest] = np.clip(age_selected[nmd_forest], 0, 200).astype(np.uint8)
+    # Kalhyggen i NMD 2023 har högst ålder 5-24 år
+    age[nmd_hygge] = np.where((age[nmd_hygge] > 0) & (age[nmd_hygge] < 25), age[nmd_hygge], 5)
 
-with np.errstate(divide='ignore', invalid='ignore'):
-    barr_ratio = np.where(total_vol > 0, barr_vol / total_vol, 0)
-cond_barr = (barr_vol >= (70 if has_real_fukt else 80)) & (barr_ratio >= 0.50 if has_real_fukt else 0.55)
+    # Markfuktighet (1=Torr-frisk, 2=Frisk-fuktig, 3=Fuktig-blöt, 4=Vatten/sankmark, 0=Utanför/Sjö/Hav)
+    is_open_water = np.isin(nmd, [61, 62])
+    fukt = np.where(inside_mask & (~is_open_water) & (fukt_raw >= 1) & (fukt_raw <= 4), fukt_raw, 0).astype(np.uint8)
+    fukt_city_file = f"markfuktighet_{flavor_name}.tif"
+    save_tif(fukt_city_file, fukt, cols, rows, gt, proj, gdal.GDT_Byte, no_data=0)
 
-# Endast NMD-klasser som faktiskt är barrskog / barrblandskog tillåts
-nmd_valid_conifer = np.isin(nmd, [111, 112, 113, 114, 121, 122, 123, 124])
+    # Skogstypsklassificering:
+    # 0 = Ingen skog (transparent)
+    # 1 = Kalhygge / Ungskog (< 25 år eller NMD 118/128) -> Blå
+    # 2 = Grandominerad skog -> Mörkgrön
+    # 3 = Talldominerad skog -> Orange
+    # 4 = Lövdominerad skog -> Ljusgrön
+    # 5 = Blandskog -> Olivgrön
+    skogstyp = np.zeros((rows, cols), dtype=np.uint8)
+    cond_hygge = nmd_hygge | (nmd_forest & (age > 0) & (age < 25)) | (nmd_forest & (total_vol < 35) & (age < 25))
+    skogstyp[cond_hygge] = 1
 
-cond_alder = age >= 50
-cond_fukt = (fukt == 2) | (fukt == 3)
+    cond_skog = nmd_forest & (~cond_hygge)
+    skogstyp[cond_skog & ((p_gran >= 0.45) | ((total_vol < 35) & np.isin(nmd, [112, 122])))] = 2
+    skogstyp[cond_skog & (((p_tall >= 0.45) & (p_tall > p_gran)) | ((total_vol < 35) & np.isin(nmd, [111, 121])))] = 3
+    skogstyp[
+        cond_skog
+        & (
+            ((p_lov >= 0.45) & (p_lov > p_gran) & (p_lov > p_tall))
+            | ((total_vol < 35) & np.isin(nmd, [115, 116, 117, 125, 126, 127]))
+        )
+    ] = 4
+    skogstyp[cond_skog & (skogstyp == 0)] = 5
 
-valid = cond_vol & cond_barr & cond_alder & cond_fukt & nmd_valid_conifer
+    skogstyp_raw_file = f"skogstyp_{flavor_name}_raw.tif"
+    save_tif(skogstyp_raw_file, skogstyp, cols, rows, gt, proj, gdal.GDT_Byte, no_data=0)
 
-# Silfilter: 20 pixlar om äkta DTW används (fuktstråk är smala meandrar), annars 50 pixlar för syntetiserade
-sieve_size = 20 if has_real_fukt else 50
-mem_drv = gdal.GetDriverByName('MEM')
-tmp_ds = mem_drv.Create('', cols, rows, 1, gdal.GDT_Byte)
-tmp_ds.GetRasterBand(1).WriteArray(valid.astype(np.uint8))
-sieve_ds = mem_drv.Create('', cols, rows, 1, gdal.GDT_Byte)
+    # 5. Sannolikhetsmodell för Trattkantarell (Strikt biologisk modell utan undantag)
+    print("5. Beräknar trattkantarell-hotspots (NMD + Volym + SLU 2025 Ålder + SLU DTW Fukt)...")
+    cond_vol = (total_vol >= 150) & (total_vol <= 600)
+    cond_barr = (barr_vol >= 70) & (barr_ratio >= 0.50) & (gran >= 40)
+    cond_alder = age >= 50
+    cond_fukt = (fukt == 2) | (fukt == 3)
 
-gdal.SieveFilter(tmp_ds.GetRasterBand(1), None, sieve_ds.GetRasterBand(1), sieve_size, 8)
-valid_filtered = sieve_ds.GetRasterBand(1).ReadAsArray() > 0
+    valid = nmd_conifer & (~cond_hygge) & cond_vol & cond_barr & cond_alder & cond_fukt
 
-hotspot = np.zeros_like(gran, dtype=np.float32)
-hotspot[valid_filtered] = 0.4
-hotspot[valid_filtered & (gran >= (100 if has_real_fukt else 80))] += 0.2
-if has_real_fukt:
-    hotspot[valid_filtered & (fukt == 2)] += 0.2  # Perfekt fukt-bonus
-else:
-    hotspot[valid_filtered & (gran >= 140)] += 0.2
-hotspot[valid_filtered & (age >= (70 if has_real_alder else 65))] += 0.2
+    # Sammanhängande yta >= 20 pixlar (~0.3 ha) med 8-grannskap
+    mem_drv = gdal.GetDriverByName("MEM")
+    tmp_ds = mem_drv.Create("", cols, rows, 1, gdal.GDT_Byte)
+    tmp_ds.GetRasterBand(1).WriteArray(valid.astype(np.uint8))
+    sieve_ds = mem_drv.Create("", cols, rows, 1, gdal.GDT_Byte)
+    gdal.SieveFilter(tmp_ds.GetRasterBand(1), None, sieve_ds.GetRasterBand(1), 20, 8)
+    valid_filtered = (sieve_ds.GetRasterBand(1).ReadAsArray() > 0) & valid
 
-save_tif(f"hotspot_{flavor_name}_raw.tif", hotspot, gdal.GDT_Float32)
+    hotspot = np.zeros((rows, cols), dtype=np.float32)
+    hotspot[valid_filtered] = 0.4
+    hotspot[valid_filtered & (gran >= 100)] += 0.2
+    hotspot[valid_filtered & (fukt == 2)] += 0.2
+    hotspot[valid_filtered & (age >= 70)] += 0.2
 
-# 6. Exportera till MBTiles och kopiera till Android app
-print("6. Reprojicerar och skapar MBTiles...")
-run_cmd(f"gdalwarp -overwrite -t_srs EPSG:3857 -r near skogstyp_{flavor_name}_raw.tif skogstyp_{flavor_name}_3857.tif")
-run_cmd(f"gdaldem color-relief skogstyp_{flavor_name}_3857.tif color_skogstyp.txt skogstyp_{flavor_name}_colored.tif -alpha")
-if os.path.exists(f"skogstyp_{flavor_name}.mbtiles"): os.remove(f"skogstyp_{flavor_name}.mbtiles")
-run_cmd(f"gdal_translate -of MBTILES -co TILE_FORMAT=PNG skogstyp_{flavor_name}_colored.tif skogstyp_{flavor_name}.mbtiles")
-run_cmd(f"gdaladdo -r nearest skogstyp_{flavor_name}.mbtiles 2 4 8 16")
+    hotspot_raw_file = f"hotspot_{flavor_name}_raw.tif"
+    save_tif(hotspot_raw_file, hotspot, cols, rows, gt, proj, gdal.GDT_Float32, no_data=0)
 
-run_cmd(f"gdalwarp -overwrite -t_srs EPSG:3857 -r near hotspot_{flavor_name}_raw.tif hotspot_{flavor_name}_3857.tif")
-run_cmd(f"gdaldem color-relief hotspot_{flavor_name}_3857.tif color_tratt.txt hotspot_{flavor_name}_colored.tif -alpha")
-if os.path.exists(f"hotspot_{flavor_name}.mbtiles"): os.remove(f"hotspot_{flavor_name}.mbtiles")
-run_cmd(f"gdal_translate -of MBTILES -co TILE_FORMAT=PNG hotspot_{flavor_name}_colored.tif hotspot_{flavor_name}.mbtiles")
-run_cmd(f"gdaladdo -r nearest hotspot_{flavor_name}.mbtiles 2 4 8 16")
+    # 6. Omprojicering till Web Mercator (EPSG:3857) och MBTiles-generering
+    print("6. Reprojicerar till EPSG:3857 och bygger MBTiles...")
+    layers_to_export = [
+        ("skogstyp", skogstyp_raw_file, "color_skogstyp.txt"),
+        ("hotspot", hotspot_raw_file, "color_tratt.txt"),
+        ("markfuktighet", fukt_city_file, "color_fukt.txt"),
+    ]
+    for prefix, raw_tif, color_txt in layers_to_export:
+        tif_3857 = f"{prefix}_{flavor_name}_3857.tif"
+        tif_colored = f"{prefix}_{flavor_name}_colored.tif"
+        mbtiles_out = f"{prefix}_{flavor_name}.mbtiles"
 
-if has_real_fukt:
-    print(f"Skapar markfuktighet_{flavor_name}.mbtiles...")
-    run_cmd(f"gdalwarp -overwrite -t_srs EPSG:3857 -r near {real_fukt_file} markfuktighet_{flavor_name}_3857.tif")
-    run_cmd(f"gdaldem color-relief markfuktighet_{flavor_name}_3857.tif color_fukt.txt markfuktighet_{flavor_name}_colored.tif -alpha")
-    if os.path.exists(f"markfuktighet_{flavor_name}.mbtiles"): os.remove(f"markfuktighet_{flavor_name}.mbtiles")
-    run_cmd(f"gdal_translate -of MBTILES -co TILE_FORMAT=PNG markfuktighet_{flavor_name}_colored.tif markfuktighet_{flavor_name}.mbtiles")
-    run_cmd(f"gdaladdo -r nearest markfuktighet_{flavor_name}.mbtiles 2 4 8 16")
+        run_cmd(f"gdalwarp -overwrite -t_srs EPSG:3857 -r near -dstnodata 0 {raw_tif} {tif_3857}")
+        run_cmd(f"gdaldem color-relief {tif_3857} {color_txt} {tif_colored} -alpha")
+        if os.path.exists(mbtiles_out):
+            os.remove(mbtiles_out)
+        run_cmd(f"gdal_translate -of MBTILES -co TILE_FORMAT=PNG {tif_colored} {mbtiles_out}")
+        run_cmd(f"gdaladdo -r nearest {mbtiles_out} 2 4 8 16")
 
-# 7. Inspektionsdata (forest_inspection.bin)
-print("7. Skapar forest_inspection.bin...")
-ref_3857 = gdal.Open(f"hotspot_{flavor_name}_3857.tif")
-gt_3857 = ref_3857.GetGeoTransform()
-cols_bin = ref_3857.RasterXSize // 2
-rows_bin = ref_3857.RasterYSize // 2
-x_min_bin = gt_3857[0]
-x_max_bin = gt_3857[0] + ref_3857.RasterXSize * gt_3857[1]
-y_max_bin = gt_3857[3]
-y_min_bin = gt_3857[3] + ref_3857.RasterYSize * gt_3857[5]
+    # 7. Skapa kompakt inspektionsgrid (forest_inspection.bin) från de MASKADE arrayerna
+    print("7. Bygger forest_inspection.bin från maskade skogsdata...")
+    ref_3857 = gdal.Open(f"hotspot_{flavor_name}_3857.tif")
+    gt_3857 = ref_3857.GetGeoTransform()
+    proj_3857 = ref_3857.GetProjection()
+    cols_bin = ref_3857.RasterXSize // 2
+    rows_bin = ref_3857.RasterYSize // 2
+    x_min_bin = gt_3857[0]
+    x_max_bin = gt_3857[0] + ref_3857.RasterXSize * gt_3857[1]
+    y_max_bin = gt_3857[3]
+    y_min_bin = gt_3857[3] + ref_3857.RasterYSize * gt_3857[5]
 
-cell_x = (x_max_bin - x_min_bin) / cols_bin
-cell_y = (y_max_bin - y_min_bin) / rows_bin
+    cell_x = (x_max_bin - x_min_bin) / cols_bin
+    cell_y = (y_max_bin - y_min_bin) / rows_bin
 
-def resample_to_grid(src_file):
-    src_ds = gdal.Open(src_file)
-    out_ds = mem_drv.Create('', cols_bin, rows_bin, 1, gdal.GDT_Float32)
-    out_ds.SetGeoTransform((x_min_bin, cell_x, 0, y_max_bin, 0, -cell_y))
-    out_ds.SetProjection(ref_3857.GetProjection())
-    gdal.ReprojectImage(src_ds, out_ds, None, None, gdal.GRA_NearestNeighbour)
-    return np.nan_to_num(out_ds.GetRasterBand(1).ReadAsArray(), nan=0.0)
+    def resample_array_to_bin_grid(arr_3006):
+        src_ds = create_mem_ds(arr_3006.astype(np.float32), cols, rows, gt, proj, gdal.GDT_Float32)
+        out_ds = mem_drv.Create("", cols_bin, rows_bin, 1, gdal.GDT_Float32)
+        out_ds.SetGeoTransform((x_min_bin, cell_x, 0.0, y_max_bin, 0.0, -cell_y))
+        out_ds.SetProjection(proj_3857)
+        gdal.ReprojectImage(src_ds, out_ds, proj, proj_3857, gdal.GRA_NearestNeighbour)
+        return np.nan_to_num(out_ds.GetRasterBand(1).ReadAsArray(), nan=0.0)
 
-g_g = np.clip(resample_to_grid(clipped_vols["gran"]), 0, 255).astype(np.uint8)
-t_g = np.clip(resample_to_grid(clipped_vols["tall"]), 0, 255).astype(np.uint8)
-l_g = np.clip(resample_to_grid(clipped_vols["lov"]), 0, 255).astype(np.uint8)
-t_v = g_g.astype(int) + t_g.astype(int) + l_g.astype(int)
+    g_g = np.clip(np.rint(resample_array_to_bin_grid(gran)), 0, 255).astype(np.uint8)
+    t_g = np.clip(np.rint(resample_array_to_bin_grid(tall)), 0, 255).astype(np.uint8)
+    l_g = np.clip(np.rint(resample_array_to_bin_grid(lov)), 0, 255).astype(np.uint8)
+    a_g = np.clip(np.rint(resample_array_to_bin_grid(age)), 0, 255).astype(np.uint8)
+    f_g = np.clip(np.rint(resample_array_to_bin_grid(fukt)), 0, 4).astype(np.uint8)
+    s_g = np.clip(np.rint(resample_array_to_bin_grid(hotspot * 100.0)), 0, 100).astype(np.uint8)
 
-# Apply NMD mask on the grid too? 
-# To keep it exact, we just re-evaluate age and fukt with the downsampled volume
-# If the high-res volume was masked out above, it won't exist in the clipped_vols anyway!
-# Wait, clipped_vols has the UNMASKED original volume. We should save the masked volume and use that.
-# For simplicity, we just use the masked arrays directly? Resampling from TIFF is easier.
-# Let's save a temp masked total volume for accurate grid data.
-save_tif(f"tmp_tot_{flavor_name}.tif", total_vol)
-save_tif(f"tmp_age_{flavor_name}.tif", age)
-save_tif(f"tmp_fukt_{flavor_name}.tif", fukt)
+    # Säkerställ fullständig konsistens i det nedskalade rutnätet
+    outside_or_water = f_g == 0
+    g_g[outside_or_water] = 0
+    t_g[outside_or_water] = 0
+    l_g[outside_or_water] = 0
+    a_g[outside_or_water] = 0
+    s_g[outside_or_water] = 0
 
-t_v = np.clip(resample_to_grid(f"tmp_tot_{flavor_name}.tif"), 0, 255).astype(int)
-a_g = np.clip(resample_to_grid(f"tmp_age_{flavor_name}.tif"), 0, 255).astype(np.uint8)
-f_g = np.clip(resample_to_grid(f"tmp_fukt_{flavor_name}.tif"), 0, 255).astype(np.uint8)
-s_g = np.clip(resample_to_grid(f"hotspot_{flavor_name}_3857.tif") * 100, 0, 100).astype(np.uint8)
+    tot_g = g_g.astype(np.int32) + t_g.astype(np.int32) + l_g.astype(np.int32)
+    s_g[tot_g < 150] = 0
 
-header = struct.pack(">4si2d2i2d", b"SVMP", 1, x_min_bin, y_max_bin, cols_bin, rows_bin, cell_x, cell_y)
-comb = np.stack([g_g, t_g, l_g, a_g, f_g, s_g], axis=-1)
+    header = struct.pack(">4si2d2i2d", b"SVMP", 1, x_min_bin, y_max_bin, cols_bin, rows_bin, cell_x, cell_y)
+    comb = np.stack([g_g, t_g, l_g, a_g, f_g, s_g], axis=-1)
 
-bin_file = f"forest_inspection_{flavor_name}.bin"
-with open(bin_file, "wb") as f:
-    f.write(header)
-    f.write(comb.tobytes())
+    bin_file = f"forest_inspection_{flavor_name}.bin"
+    with open(bin_file, "wb") as f:
+        f.write(header)
+        f.write(comb.tobytes())
 
-# KOPERA TILL APP
-app_dir = f"../SvampRadar/app/src/{flavor_name}/assets"
-if os.path.exists(app_dir):
-    run_cmd(f"cp skogstyp_{flavor_name}.mbtiles {app_dir}/skogstyp.mbtiles")
-    run_cmd(f"cp hotspot_{flavor_name}.mbtiles {app_dir}/hotspot_trattkantarell.mbtiles")
-    if has_real_fukt and os.path.exists(f"markfuktighet_{flavor_name}.mbtiles"):
-        run_cmd(f"cp markfuktighet_{flavor_name}.mbtiles {app_dir}/markfuktighet.mbtiles")
-    run_cmd(f"cp {bin_file} {app_dir}/forest_inspection.bin")
-    print(f"Kopierade filer till {app_dir}/")
-else:
-    print(f"Varning: Mappen {app_dir} finns inte. Skapade bara filerna lokalt.")
+    # 8. Kopiera till BÅDE kommunens flavor-mapp och full-mappen
+    print("8. Synkroniserar genererade filer till Android-appens assets...")
+    flavor_dir = os.path.abspath(f"../SvampRadar/app/src/{flavor_name}/assets")
+    if os.path.exists(flavor_dir):
+        shutil.copyfile(f"skogstyp_{flavor_name}.mbtiles", os.path.join(flavor_dir, "skogstyp.mbtiles"))
+        shutil.copyfile(f"hotspot_{flavor_name}.mbtiles", os.path.join(flavor_dir, "hotspot_trattkantarell.mbtiles"))
+        shutil.copyfile(f"markfuktighet_{flavor_name}.mbtiles", os.path.join(flavor_dir, "markfuktighet.mbtiles"))
+        shutil.copyfile(bin_file, os.path.join(flavor_dir, "forest_inspection.bin"))
+        print(f"   Uppdaterade {flavor_dir}/")
 
-print(f"--- Klart med {city_name}! ---")
+    full_dir = os.path.abspath("../SvampRadar/app/src/full/assets")
+    if os.path.exists(full_dir):
+        full_suffix = "ale_lilla_edet" if flavor_name == "aleLillaEdet" else flavor_name
+        shutil.copyfile(f"skogstyp_{flavor_name}.mbtiles", os.path.join(full_dir, f"skogstyp_{full_suffix}.mbtiles"))
+        shutil.copyfile(
+            f"hotspot_{flavor_name}.mbtiles",
+            os.path.join(full_dir, f"hotspot_trattkantarell_{full_suffix}.mbtiles"),
+        )
+        shutil.copyfile(
+            f"markfuktighet_{flavor_name}.mbtiles",
+            os.path.join(full_dir, f"markfuktighet_{full_suffix}.mbtiles"),
+        )
+        shutil.copyfile(bin_file, os.path.join(full_dir, f"forest_inspection_{full_suffix}.bin"))
+        print(f"   Uppdaterade {full_dir}/*_{full_suffix}.*")
+
+    # 9. Automatisk verifiering av invarianter
+    verify_city(
+        city_name=city_name,
+        flavor_name=flavor_name,
+        nmd_forest=nmd_forest,
+        nmd_hygge=nmd_hygge,
+        skogstyp=skogstyp,
+        hotspot=hotspot,
+        comb=comb,
+    )
+
+
+def verify_city(city_name, flavor_name, nmd_forest, nmd_hygge, skogstyp, hotspot, comb):
+    print(f"9. Verifierar kartmodeller och dataintegritet för {city_name}...")
+    non_forest = ~nmd_forest
+
+    # Invariant 1: Ingen skog eller hotspot får ligga utanför NMD skogsmark (stad, vatten, åker, öppen mark)
+    bad_skog_nonforest = int(np.count_nonzero(skogstyp[non_forest] > 0))
+    bad_hotspot_nonforest = int(np.count_nonzero(hotspot[non_forest] > 0))
+    assert bad_skog_nonforest == 0, f"FEL: {bad_skog_nonforest} skogspixlar utanför NMD skogsmark!"
+    assert bad_hotspot_nonforest == 0, f"FEL: {bad_hotspot_nonforest} hotspotpixlar utanför NMD skogsmark!"
+
+    # Invariant 2: NMD kalhyggen (118/128) får aldrig klassas som etablerad skog (2..5) eller hotspot
+    bad_skog_hygge = int(np.count_nonzero(np.isin(skogstyp[nmd_hygge], [2, 3, 4, 5])))
+    bad_hotspot_hygge = int(np.count_nonzero(hotspot[nmd_hygge] > 0))
+    assert bad_skog_hygge == 0, f"FEL: {bad_skog_hygge} kalhyggespixlar klassade som mogen skog!"
+    assert bad_hotspot_hygge == 0, f"FEL: {bad_hotspot_hygge} hotspotpixlar på kalhygge!"
+
+    # Invariant 3: Inspektionsgridens poäng får aldrig vara > 0 om totalvolym < 150 eller fukt == 0
+    g_b, t_b, l_b, a_b, f_b, s_b = [comb[..., i].astype(np.int32) for i in range(6)]
+    tot_b = g_b + t_b + l_b
+    bad_bin_score = int(np.count_nonzero((s_b > 0) & ((tot_b < 150) | (f_b == 0))))
+    assert bad_bin_score == 0, f"FEL: {bad_bin_score} celler i .bin har poäng men saknar skogsvolym/fukt!"
+
+    px_ha = (12.5 * 12.5) / 10000.0
+    forest_ha = np.count_nonzero(nmd_forest) * px_ha
+    hygge_ha = np.count_nonzero(skogstyp == 1) * px_ha
+    gran_ha = np.count_nonzero(skogstyp == 2) * px_ha
+    tall_ha = np.count_nonzero(skogstyp == 3) * px_ha
+    lov_ha = np.count_nonzero(skogstyp == 4) * px_ha
+    bland_ha = np.count_nonzero(skogstyp == 5) * px_ha
+    hotspot_px = np.count_nonzero(hotspot > 0)
+    hotspot_ha = hotspot_px * px_ha
+
+    s40 = np.count_nonzero(np.isclose(hotspot, 0.4))
+    s60 = np.count_nonzero(np.isclose(hotspot, 0.6))
+    s80 = np.count_nonzero(np.isclose(hotspot, 0.8))
+    s100 = np.count_nonzero(np.isclose(hotspot, 1.0))
+
+    print(f"   [OK] Alla invarianter godkända för {city_name}!")
+    print(f"   Skogsmark totalt: {forest_ha:,.0f} ha")
+    print(
+        f"   Skogstyper: Gran={gran_ha:,.0f} ha, Tall={tall_ha:,.0f} ha, "
+        f"Löv={lov_ha:,.0f} ha, Bland={bland_ha:,.0f} ha, Hygge/Ungskog={hygge_ha:,.0f} ha"
+    )
+    print(
+        f"   Hotspots (Trattkantarell): {hotspot_px:,} pixlar ({hotspot_ha:,.1f} ha) | "
+        f"40p={s40:,}, 60p={s60:,}, 80p={s80:,}, 100p={s100:,}"
+    )
+
+
+def decode_png_rgba(png_bytes):
+    vsi_path = "/vsimem/tmp_in.png"
+    gdal.FileFromMemBuffer(vsi_path, bytes(png_bytes))
+    ds = gdal.Open(vsi_path)
+    arr = ds.ReadAsArray()  # (bands, 256, 256)
+    ds = None
+    gdal.Unlink(vsi_path)
+    if arr.shape[0] == 3:
+        alpha = np.full((1, arr.shape[1], arr.shape[2]), 255, dtype=np.uint8)
+        arr = np.concatenate([arr, alpha], axis=0)
+    return arr
+
+
+def encode_png_rgba(rgba_arr):
+    mem_drv = gdal.GetDriverByName("MEM")
+    png_drv = gdal.GetDriverByName("PNG")
+    _, h, w = rgba_arr.shape
+    ds = mem_drv.Create("", w, h, 4, gdal.GDT_Byte)
+    for b in range(4):
+        ds.GetRasterBand(b + 1).WriteArray(rgba_arr[b])
+    vsi_out = "/vsimem/tmp_out.png"
+    out_ds = png_drv.CreateCopy(vsi_out, ds)
+    out_ds = None
+    ds = None
+    f = gdal.VSIFOpenL(vsi_out, "rb")
+    gdal.VSIFSeekL(f, 0, 2)
+    size = gdal.VSIFTellL(f)
+    gdal.VSIFSeekL(f, 0, 0)
+    data = gdal.VSIFReadL(1, size, f)
+    gdal.VSIFCloseL(f)
+    gdal.Unlink(vsi_out)
+    return bytes(data)
+
+
+def stitch_overlapping_mbtiles_in_full():
+    import glob
+    import sqlite3
+
+    full_dir = os.path.abspath("../SvampRadar/app/src/full/assets")
+    if not os.path.exists(full_dir):
+        return
+
+    print("\n==================================================================")
+    print("Sammanfogar överlappande kommungräns-tiles i full/assets/...")
+    print("==================================================================")
+
+    for prefix in ["skogstyp", "hotspot_trattkantarell", "markfuktighet"]:
+        files = sorted(glob.glob(os.path.join(full_dir, f"{prefix}_*.mbtiles")))
+        if len(files) < 2:
+            continue
+
+        tile_map = {}
+        for fpath in files:
+            conn = sqlite3.connect(fpath)
+            cur = conn.cursor()
+            cur.execute("SELECT zoom_level, tile_column, tile_row, tile_data FROM tiles")
+            for z, x, y, data in cur.fetchall():
+                tile_map.setdefault((z, x, y), []).append((fpath, data))
+            conn.close()
+
+        overlaps = {k: v for k, v in tile_map.items() if len(v) > 1}
+        stitched_count = 0
+        for (z, x, y), entries in overlaps.items():
+            combined = None
+            for _, png_bytes in entries:
+                rgba = decode_png_rgba(png_bytes)
+                if combined is None:
+                    combined = rgba.copy()
+                else:
+                    mask = rgba[3] > 0
+                    for b in range(4):
+                        combined[b][mask] = rgba[b][mask]
+            merged_bytes = encode_png_rgba(combined)
+            for fpath, _ in entries:
+                conn = sqlite3.connect(fpath)
+                conn.execute(
+                    "UPDATE tiles SET tile_data = ? WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?",
+                    (merged_bytes, z, x, y),
+                )
+                conn.commit()
+                conn.close()
+            stitched_count += 1
+        print(f"   {prefix}: Sammanfogade {stitched_count} överlappande gräns-tiles.")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 2 and sys.argv[1] == "--all":
+        for c_name, f_name in ALL_CITIES:
+            process_city(c_name, f_name)
+        stitch_overlapping_mbtiles_in_full()
+    elif len(sys.argv) >= 3:
+        process_city(sys.argv[1], sys.argv[2])
+        stitch_overlapping_mbtiles_in_full()
+    else:
+        print("Användning:")
+        print("  python process_city.py <KommunNamn> <FlavorName>")
+        print("  python process_city.py --all")
+        sys.exit(1)
